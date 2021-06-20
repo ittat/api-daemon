@@ -1,9 +1,9 @@
-use std::fmt;
 use std::convert::TryFrom;
+use std::fmt;
 use std::time::Duration;
 
 use base64::encode;
-use http::{Request as HttpRequest, request::Parts};
+use http::{request::Parts, Request as HttpRequest};
 use serde::Serialize;
 #[cfg(feature = "json")]
 use serde_json;
@@ -472,6 +472,7 @@ impl RequestBuilder {
     /// Serialization can fail if `T`'s implementation of `Serialize` decides to
     /// fail, or if `T` contains a map with non-string keys.
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     pub fn json<T: Serialize + ?Sized>(mut self, json: &T) -> RequestBuilder {
         let mut error = None;
         if let Ok(ref mut req) = self.request {
@@ -510,6 +511,7 @@ impl RequestBuilder {
     ///
     /// See [`multipart`](multipart/) for more examples.
     #[cfg(feature = "multipart")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
     pub fn multipart(self, mut multipart: multipart::Form) -> RequestBuilder {
         let mut builder = self.header(
             CONTENT_TYPE,
@@ -596,7 +598,10 @@ impl RequestBuilder {
     }
 }
 
-impl<T> TryFrom<HttpRequest<T>> for Request where T:Into<Body> {
+impl<T> TryFrom<HttpRequest<T>> for Request
+where
+    T: Into<Body>,
+{
     type Error = crate::Error;
 
     fn try_from(req: HttpRequest<T>) -> crate::Result<Self> {
@@ -607,8 +612,7 @@ impl<T> TryFrom<HttpRequest<T>> for Request where T:Into<Body> {
             headers,
             ..
         } = parts;
-        let url = Url::parse(&uri.to_string())
-            .map_err(crate::error::builder)?;
+        let url = Url::parse(&uri.to_string()).map_err(crate::error::builder)?;
         let mut inner = async_impl::Request::new(method, url);
         crate::util::replace_headers(inner.headers_mut(), headers);
         Ok(Request {
@@ -635,8 +639,8 @@ fn fmt_request_fields<'a, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use super::{HttpRequest, Request};
     use super::super::{body, Client};
+    use super::{HttpRequest, Request};
     use crate::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, HOST};
     use crate::Method;
     use serde::Serialize;
@@ -957,18 +961,19 @@ mod tests {
         let client = Client::new();
         let some_url = "https://Aladdin:open sesame@localhost/";
 
-        let req = client
-            .get(some_url)
-            .build()
-            .expect("request build");
+        let req = client.get(some_url).build().expect("request build");
 
         assert_eq!(req.url().as_str(), "https://localhost/");
-        assert_eq!(req.headers()["authorization"], "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+        assert_eq!(
+            req.headers()["authorization"],
+            "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+        );
     }
 
     #[test]
     fn convert_from_http_request() {
-        let http_request = HttpRequest::builder().method("GET")
+        let http_request = HttpRequest::builder()
+            .method("GET")
             .uri("http://localhost/")
             .header("User-Agent", "my-awesome-agent/1.0")
             .body("test test test")
@@ -995,7 +1000,10 @@ mod tests {
             .expect("request build");
 
         assert_eq!(req.url().as_str(), "https://localhost/");
-        assert_eq!(req.headers()["authorization"], "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+        assert_eq!(
+            req.headers()["authorization"],
+            "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+        );
         assert_eq!(req.headers()["authorization"].is_sensitive(), true);
     }
 

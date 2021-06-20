@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.14.2"
+version = "0.14.5"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -25,8 +25,8 @@ categories = ["network-programming", "web-programming::http-client", "web-progra
 license = "MIT"
 repository = "https://github.com/hyperium/hyper"
 [package.metadata.docs.rs]
-features = ["full"]
-rustdoc-args = ["--cfg", "docsrs"]
+features = ["ffi", "full"]
+rustdoc-args = ["--cfg", "docsrs", "--cfg", "hyper_unstable_ffi"]
 
 [package.metadata.playground]
 features = ["full"]
@@ -37,6 +37,9 @@ incremental = false
 [profile.release]
 codegen-units = 1
 incremental = false
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [[example]]
 name = "client"
@@ -190,11 +193,15 @@ version = "0.3"
 [dependencies.itoa]
 version = "0.4.1"
 
+[dependencies.libc]
+version = "0.2"
+optional = true
+
 [dependencies.pin-project]
 version = "1.0"
 
 [dependencies.socket2]
-version = "0.3.16"
+version = "0.4"
 optional = true
 
 [dependencies.tokio]
@@ -248,6 +255,10 @@ version = "0.4"
 version = "0.6"
 features = ["codec"]
 
+[dev-dependencies.tower]
+version = "0.4"
+features = ["make"]
+
 [dev-dependencies.tower-util]
 version = "0.3"
 
@@ -258,6 +269,7 @@ version = "2.2"
 __internal_happy_eyeballs_tests = []
 client = []
 default = []
+ffi = ["libc"]
 full = ["client", "http1", "http2", "server", "stream", "runtime"]
 http1 = []
 http2 = ["h2"]

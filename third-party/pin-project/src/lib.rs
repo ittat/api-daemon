@@ -6,8 +6,9 @@
 //! covering all the fields of struct or enum.
 //!
 //! ```rust
-//! use pin_project::pin_project;
 //! use std::pin::Pin;
+//!
+//! use pin_project::pin_project;
 //!
 //! #[pin_project]
 //! struct Struct<T, U> {
@@ -31,8 +32,9 @@
 //! returned from the method.
 //!
 //! ```rust
-//! use pin_project::pin_project;
 //! use std::pin::Pin;
+//!
+//! use pin_project::pin_project;
 //!
 //! #[pin_project(project = EnumProj)]
 //! enum Enum<T, U> {
@@ -59,10 +61,10 @@
 //! See [`#[pin_project]`][`pin_project`] attribute for more details, and
 //! see [examples] directory for more examples and generated code.
 //!
-//! [examples]: https://github.com/taiki-e/pin-project/blob/master/examples/README.md
-//! [enum-default-expanded]: https://github.com/taiki-e/pin-project/blob/master/examples/enum-default-expanded.rs
+//! [examples]: https://github.com/taiki-e/pin-project/blob/HEAD/examples/README.md
+//! [enum-default-expanded]: https://github.com/taiki-e/pin-project/blob/HEAD/examples/enum-default-expanded.rs
 //! [pin-projection]: core::pin#projections-and-structural-pinning
-//! [struct-default-expanded]: https://github.com/taiki-e/pin-project/blob/master/examples/struct-default-expanded.rs
+//! [struct-default-expanded]: https://github.com/taiki-e/pin-project/blob/HEAD/examples/struct-default-expanded.rs
 
 #![no_std]
 #![doc(test(
@@ -72,14 +74,12 @@
         allow(dead_code, unused_variables)
     )
 ))]
-#![warn(future_incompatible, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
-#![warn(missing_docs)]
-#![warn(clippy::all, clippy::default_trait_access)]
+#![warn(future_incompatible, missing_docs, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
+#![warn(clippy::default_trait_access)]
 #![allow(clippy::needless_doctest_main)]
 
 #[doc(inline)]
 pub use pin_project_internal::pin_project;
-
 #[doc(inline)]
 pub use pin_project_internal::pinned_drop;
 
@@ -155,10 +155,10 @@ pub mod __private {
         ptr,
     };
 
-    use super::UnsafeUnpin;
-
     #[doc(hidden)]
     pub use pin_project_internal::__PinProjectInternalDerive;
+
+    use super::UnsafeUnpin;
 
     // An internal trait used for custom implementations of [`Drop`].
     //

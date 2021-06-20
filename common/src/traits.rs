@@ -401,12 +401,18 @@ impl SessionContext {
     }
 }
 
+pub trait StateLogger {
+    fn log(&self) {}
+}
+
+impl StateLogger for () {}
+
 pub type SharedSessionContext = Shared<SessionContext>;
 
 pub trait Service<S> {
     /// The type of the shared state if multiple instances of this service need to
     /// share access.
-    type State;
+    type State: StateLogger;
 
     /// Called once we have checked that BaseMessage was targetted at this service.
     fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage);
@@ -460,6 +466,10 @@ impl<T> Shared<T> {
             inner: Arc::new(Mutex::new(what)),
         }
     }
+
+    pub fn is_locked(&self) -> bool {
+        self.inner.is_locked()
+    }
 }
 
 impl<T> Clone for Shared<T> {
@@ -498,8 +508,8 @@ pub trait CommonResponder {
         message: &str,
     ) -> bool {
         let identity = origin_attributes.identity();
-        if identity == "fake-identity" || identity == "uds" {
-            // All permissions are granted in fake-tokens mode or for uds sessions, so
+        if identity == "uds" {
+            // All permissions are granted to uds sessions, so
             // no permission error will ever be sent.
             false
         } else {

@@ -1,3 +1,36 @@
+# 0.7.11
+
+## Fixes
+
+* Fix missing feature of winapi.
+  (https://github.com/tokio-rs/mio/commit/a7e61db9e3c2b929ef1a33532bfcc22045d163ce).
+
+# 0.7.10
+
+## Fixes
+
+* Fix an instance of not doc(cfg(.*))
+  (https://github.com/tokio-rs/mio/commit/25e8f911357c740034f10a170dfa4ea1b28234ce).
+
+## Fixes
+
+* Fix error handling in `NamedPipe::write`
+  (https://github.com/tokio-rs/mio/commit/aec872be9732e5c6685100674278be27f54a271b).
+* Use `accept(2)` on x86 Android instead of `accept4(2)`
+  (https://github.com/tokio-rs/mio/commit/6f86b925d3e48f30905d5cfa54348acf3f1fa036,
+  https://github.com/tokio-rs/mio/commit/8d5414880ab82178305ac1d2c16d715e58633d3e).
+* Improve error message when opening AFD device
+  (https://github.com/tokio-rs/mio/commit/139f7c4422321eb4a17b14ae2c296fddd19a8804).
+
+# 0.7.8
+
+## Fixes
+
+* Fix `TcpStream::set_linger` on macOS
+  (https://github.com/tokio-rs/mio/commit/175773ce02e85977db81224c782c8d140aba8543).
+* Fix compilation on DragonFlyBSD
+  (https://github.com/tokio-rs/mio/commit/b51af46b28871f8dd3233b490ee62237ffed6a26).
+
 # 0.7.7
 
 ## Added

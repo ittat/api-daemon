@@ -3,7 +3,7 @@ use common::traits::Shared;
 use std::collections::HashMap;
 
 pub mod config;
-mod etag;
+pub mod etag;
 pub mod vhost_handler;
 
 use config::Config;
@@ -284,6 +284,22 @@ mod test {
 
         let _ = lang_request(
             "http://missing-zip.localhost:7443/localized.html",
+            StatusCode::OK,
+            "text/html",
+            Some("en-US,en;q=0.5"),
+            None,
+        );
+
+        let _ = lang_request(
+            "http://missing-zip.localhost:7443/resources/file.html",
+            StatusCode::OK,
+            "text/html",
+            Some("en-US,en;q=0.5"),
+            None,
+        );
+
+        let _ = lang_request(
+            "http://valid.localhost:7443/resources/file.html",
             StatusCode::OK,
             "text/html",
             Some("en-US,en;q=0.5"),

@@ -28,7 +28,7 @@ function release_shared_lib() {
 
 function release_service_lib() {
     local service=$1
-    local src=services/${service}/client
+    local src=${4:-services/${service}/client}
     local dst=$2/${service}
     local build_type=$3
 
@@ -122,6 +122,20 @@ rustflags = [
 ]
 EOF
 
+    # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
+    unset CFLAGS
+
+    # To add /usr/bin to $PATH, in order for host builds
+    # of Rust crates to find 'cc' as a linker.
+    # TODO: find a proper fix.
+    export PATH=${PATH}:/usr/bin
+
+    # Build native build-dependencies without overriding CC, CXX,... etc.
+    if echo "$FEATURES" | grep "breakpad" > /dev/null 2>&1; then
+        cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} \
+              -p native_build_deps
+    fi
+
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
     export LD=${TOOLCHAIN_CC}
@@ -131,11 +145,6 @@ EOF
 
     export TARGET_CC=${TOOLCHAIN_CC}
     export TARGET_LD=${TOOLCHAIN_CC}
-
-    # To add /usr/bin to $PATH, in order for host builds
-    # of Rust crates to find 'cc' as a linker.
-    # TODO: find a proper fix.
-    export PATH=${PATH}:/usr/bin
 
     cat <<EOF >$(pwd)/env.txt
 export CARGO_BUILD_TARGET=${TARGET_TRIPLE}
@@ -170,9 +179,9 @@ function generate_breakpad_symbols_armv7() {
         DUMP_SYMS=../tools/dump_syms/dump_syms
     fi
     echo python ../tools/dump_syms/generate_breakpad_symbols.py --dump-syms-dir ../tools/dump_syms \
-        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/kaios --binary $1
+        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/symbols --binary $1
     python ../tools/dump_syms/generate_breakpad_symbols.py --dump-syms-dir ../tools/dump_syms \
-        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/kaios --binary $1
+        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/symbols --binary $1
 }
 
 function xstrip() {

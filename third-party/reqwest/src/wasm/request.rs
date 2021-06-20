@@ -2,11 +2,12 @@ use std::convert::TryFrom;
 use std::fmt;
 
 use http::{request::Parts, Method, Request as HttpRequest};
-use url::Url;
+use serde::Serialize;
 #[cfg(feature = "json")]
 use serde_json;
-use serde::Serialize;
 use serde_urlencoded;
+use url::Url;
+use web_sys::RequestCredentials;
 
 use super::{Body, Client, Response};
 use crate::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
@@ -18,6 +19,7 @@ pub struct Request {
     headers: HeaderMap,
     body: Option<Body>,
     pub(super) cors: bool,
+    pub(super) credentials: RequestCredentials,
 }
 
 /// A builder to construct the properties of a `Request`.
@@ -27,13 +29,16 @@ pub struct RequestBuilder {
 }
 
 impl Request {
-    pub(super) fn new(method: Method, url: Url) -> Self {
+    /// Constructs a new request.
+    #[inline]
+    pub fn new(method: Method, url: Url) -> Self {
         Request {
             method,
             url,
             headers: HeaderMap::new(),
             body: None,
             cors: true,
+            credentials: RequestCredentials::SameOrigin,
         }
     }
 
@@ -153,6 +158,7 @@ impl RequestBuilder {
     }
 
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     /// Set the request json
     pub fn json<T: Serialize + ?Sized>(mut self, json: &T) -> RequestBuilder {
         let mut error = None;
@@ -181,7 +187,6 @@ impl RequestBuilder {
         self.header(crate::header::AUTHORIZATION, header_value)
     }
 
-
     /// Set the request body.
     pub fn body<T: Into<Body>>(mut self, body: T) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
@@ -192,6 +197,7 @@ impl RequestBuilder {
 
     /// TODO
     #[cfg(feature = "multipart")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
     pub fn multipart(mut self, multipart: super::multipart::Form) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
             *req.body_mut() = Some(Body::from_form(multipart))
@@ -247,6 +253,54 @@ impl RequestBuilder {
     pub fn fetch_mode_no_cors(mut self) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
             req.cors = false;
+        }
+        self
+    }
+
+    /// Set fetch credentials to 'same-origin'
+    ///
+    /// # WASM
+    ///
+    /// This option is only effective with WebAssembly target.
+    ///
+    /// The [request credentials][mdn] will be set to 'same-origin'.
+    ///
+    /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
+    pub fn fetch_credentials_same_origin(mut self) -> RequestBuilder {
+        if let Ok(ref mut req) = self.request {
+            req.credentials = RequestCredentials::SameOrigin;
+        }
+        self
+    }
+
+    /// Set fetch credentials to 'include'
+    ///
+    /// # WASM
+    ///
+    /// This option is only effective with WebAssembly target.
+    ///
+    /// The [request credentials][mdn] will be set to 'include'.
+    ///
+    /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
+    pub fn fetch_credentials_include(mut self) -> RequestBuilder {
+        if let Ok(ref mut req) = self.request {
+            req.credentials = RequestCredentials::Include;
+        }
+        self
+    }
+
+    /// Set fetch credentials to 'omit'
+    ///
+    /// # WASM
+    ///
+    /// This option is only effective with WebAssembly target.
+    ///
+    /// The [request credentials][mdn] will be set to 'omit'.
+    ///
+    /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
+    pub fn fetch_credentials_omit(mut self) -> RequestBuilder {
+        if let Ok(ref mut req) = self.request {
+            req.credentials = RequestCredentials::Omit;
         }
         self
     }
@@ -329,6 +383,7 @@ where
             headers,
             body: Some(body.into()),
             cors: true,
+            credentials: RequestCredentials::SameOrigin,
         })
     }
 }

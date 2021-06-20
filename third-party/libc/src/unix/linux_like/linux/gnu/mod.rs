@@ -13,7 +13,7 @@ s! {
         pub stx_uid: u32,
         pub stx_gid: u32,
         pub stx_mode: u16,
-        pub __statx_pad1: [u16; 1],
+        __statx_pad1: [u16; 1],
         pub stx_ino: u64,
         pub stx_size: u64,
         pub stx_blocks: u64,
@@ -26,7 +26,9 @@ s! {
         pub stx_rdev_minor: u32,
         pub stx_dev_major: u32,
         pub stx_dev_minor: u32,
-        pub __statx_pad2: [u64; 14],
+        pub stx_mnt_id: u64,
+        __statx_pad2: u64,
+        __statx_pad3: [u64; 12],
     }
 
     pub struct statx_timestamp {
@@ -285,6 +287,19 @@ s! {
         __re_nsub: ::size_t,
         __bitfield: u8,
     }
+
+    pub struct Elf64_Chdr {
+        pub ch_type: ::Elf64_Word,
+        pub ch_reserved: ::Elf64_Word,
+        pub ch_size: ::Elf64_Xword,
+        pub ch_addralign: ::Elf64_Xword,
+    }
+
+    pub struct Elf32_Chdr {
+        pub ch_type: ::Elf32_Word,
+        pub ch_size: ::Elf32_Word,
+        pub ch_addralign: ::Elf32_Word,
+    }
 }
 
 impl siginfo_t {
@@ -475,20 +490,20 @@ cfg_if! {
 
 // include/uapi/asm-generic/hugetlb_encode.h
 pub const HUGETLB_FLAG_ENCODE_SHIFT: ::c_int = 26;
-pub const HUGETLB_FLAG_ENCODE_MASK:  ::c_int = 0x3f;
+pub const HUGETLB_FLAG_ENCODE_MASK: ::c_int = 0x3f;
 
-pub const HUGETLB_FLAG_ENCODE_64KB:  ::c_int = 16 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_64KB: ::c_int = 16 << HUGETLB_FLAG_ENCODE_SHIFT;
 pub const HUGETLB_FLAG_ENCODE_512KB: ::c_int = 19 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_1MB:   ::c_int = 20 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_2MB:   ::c_int = 21 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_8MB:   ::c_int = 23 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_16MB:  ::c_int = 24 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_32MB:  ::c_int = 25 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1MB: ::c_int = 20 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2MB: ::c_int = 21 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_8MB: ::c_int = 23 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16MB: ::c_int = 24 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_32MB: ::c_int = 25 << HUGETLB_FLAG_ENCODE_SHIFT;
 pub const HUGETLB_FLAG_ENCODE_256MB: ::c_int = 28 << HUGETLB_FLAG_ENCODE_SHIFT;
 pub const HUGETLB_FLAG_ENCODE_512MB: ::c_int = 29 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_1GB:   ::c_int = 30 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_2GB:   ::c_int = 31 << HUGETLB_FLAG_ENCODE_SHIFT;
-pub const HUGETLB_FLAG_ENCODE_16GB:  ::c_int = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1GB: ::c_int = 30 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2GB: ::c_int = 31 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16GB: ::c_int = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
 
 // include/uapi/linux/mman.h
 /*
@@ -499,20 +514,20 @@ pub const HUGETLB_FLAG_ENCODE_16GB:  ::c_int = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
  * the running system.  See mmap(2) man page for details.
  */
 pub const MAP_HUGE_SHIFT: ::c_int = HUGETLB_FLAG_ENCODE_SHIFT;
-pub const MAP_HUGE_MASK:  ::c_int = HUGETLB_FLAG_ENCODE_MASK;
+pub const MAP_HUGE_MASK: ::c_int = HUGETLB_FLAG_ENCODE_MASK;
 
-pub const MAP_HUGE_64KB:  ::c_int = HUGETLB_FLAG_ENCODE_64KB;
+pub const MAP_HUGE_64KB: ::c_int = HUGETLB_FLAG_ENCODE_64KB;
 pub const MAP_HUGE_512KB: ::c_int = HUGETLB_FLAG_ENCODE_512KB;
-pub const MAP_HUGE_1MB:   ::c_int = HUGETLB_FLAG_ENCODE_1MB;
-pub const MAP_HUGE_2MB:   ::c_int = HUGETLB_FLAG_ENCODE_2MB;
-pub const MAP_HUGE_8MB:   ::c_int = HUGETLB_FLAG_ENCODE_8MB;
-pub const MAP_HUGE_16MB:  ::c_int = HUGETLB_FLAG_ENCODE_16MB;
-pub const MAP_HUGE_32MB:  ::c_int = HUGETLB_FLAG_ENCODE_32MB;
+pub const MAP_HUGE_1MB: ::c_int = HUGETLB_FLAG_ENCODE_1MB;
+pub const MAP_HUGE_2MB: ::c_int = HUGETLB_FLAG_ENCODE_2MB;
+pub const MAP_HUGE_8MB: ::c_int = HUGETLB_FLAG_ENCODE_8MB;
+pub const MAP_HUGE_16MB: ::c_int = HUGETLB_FLAG_ENCODE_16MB;
+pub const MAP_HUGE_32MB: ::c_int = HUGETLB_FLAG_ENCODE_32MB;
 pub const MAP_HUGE_256MB: ::c_int = HUGETLB_FLAG_ENCODE_256MB;
 pub const MAP_HUGE_512MB: ::c_int = HUGETLB_FLAG_ENCODE_512MB;
-pub const MAP_HUGE_1GB:   ::c_int = HUGETLB_FLAG_ENCODE_1GB;
-pub const MAP_HUGE_2GB:   ::c_int = HUGETLB_FLAG_ENCODE_2GB;
-pub const MAP_HUGE_16GB:  ::c_int = HUGETLB_FLAG_ENCODE_16GB;
+pub const MAP_HUGE_1GB: ::c_int = HUGETLB_FLAG_ENCODE_1GB;
+pub const MAP_HUGE_2GB: ::c_int = HUGETLB_FLAG_ENCODE_2GB;
+pub const MAP_HUGE_16GB: ::c_int = HUGETLB_FLAG_ENCODE_16GB;
 
 pub const RLIMIT_CPU: ::__rlimit_resource_t = 0;
 pub const RLIMIT_FSIZE: ::__rlimit_resource_t = 1;
@@ -618,6 +633,22 @@ pub const TCP_FASTOPEN: ::c_int = 23;
 pub const TCP_TIMESTAMP: ::c_int = 24;
 pub const TCP_FASTOPEN_CONNECT: ::c_int = 30;
 
+pub const FAN_MARK_INODE: ::c_uint = 0x0000_0000;
+pub const FAN_MARK_MOUNT: ::c_uint = 0x0000_0010;
+// NOTE: FAN_MARK_FILESYSTEM requires Linux Kernel >= 4.20.0
+pub const FAN_MARK_FILESYSTEM: ::c_uint = 0x0000_0100;
+
+pub const AF_IB: ::c_int = 27;
+pub const AF_MPLS: ::c_int = 28;
+pub const AF_NFC: ::c_int = 39;
+pub const AF_VSOCK: ::c_int = 40;
+pub const AF_XDP: ::c_int = 44;
+pub const PF_IB: ::c_int = AF_IB;
+pub const PF_MPLS: ::c_int = AF_MPLS;
+pub const PF_NFC: ::c_int = AF_NFC;
+pub const PF_VSOCK: ::c_int = AF_VSOCK;
+pub const PF_XDP: ::c_int = AF_XDP;
+
 /* DCCP socket options */
 pub const DCCP_SOCKOPT_PACKET_SIZE: ::c_int = 1;
 pub const DCCP_SOCKOPT_SERVICE: ::c_int = 2;
@@ -644,6 +675,7 @@ pub const SIGEV_THREAD_ID: ::c_int = 4;
 pub const BUFSIZ: ::c_uint = 8192;
 pub const TMP_MAX: ::c_uint = 238328;
 pub const FOPEN_MAX: ::c_uint = 16;
+pub const FILENAME_MAX: ::c_uint = 4096;
 pub const POSIX_MADV_DONTNEED: ::c_int = 4;
 pub const _SC_EQUIV_CLASS_MAX: ::c_int = 41;
 pub const _SC_CHARCLASS_NAME_MAX: ::c_int = 45;
@@ -768,6 +800,9 @@ cfg_if! {
         pub const QNX6_SUPER_MAGIC: ::c_long = 0x68191122;
         pub const RDTGROUP_SUPER_MAGIC: ::c_long = 0x7655821;
         pub const REISERFS_SUPER_MAGIC: ::c_long = 0x52654973;
+        pub const SECURITYFS_MAGIC: ::c_long = 0x73636673;
+        pub const SELINUX_MAGIC: ::c_long = 0xf97cff8c;
+        pub const SMACK_MAGIC: ::c_long = 0x43415d53;
         pub const SMB_SUPER_MAGIC: ::c_long = 0x0000517b;
         pub const SYSFS_MAGIC: ::c_long = 0x62656572;
         pub const TMPFS_MAGIC: ::c_long = 0x01021994;
@@ -819,6 +854,9 @@ cfg_if! {
         pub const QNX6_SUPER_MAGIC: ::c_uint = 0x68191122;
         pub const RDTGROUP_SUPER_MAGIC: ::c_uint = 0x7655821;
         pub const REISERFS_SUPER_MAGIC: ::c_uint = 0x52654973;
+        pub const SECURITYFS_MAGIC: ::c_uint = 0x73636673;
+        pub const SELINUX_MAGIC: ::c_uint = 0xf97cff8c;
+        pub const SMACK_MAGIC: ::c_uint = 0x43415d53;
         pub const SMB_SUPER_MAGIC: ::c_uint = 0x0000517b;
         pub const SYSFS_MAGIC: ::c_uint = 0x62656572;
         pub const TMPFS_MAGIC: ::c_uint = 0x01021994;
@@ -855,10 +893,14 @@ pub const PTRACE_INTERRUPT: ::c_uint = 0x4207;
 pub const PTRACE_LISTEN: ::c_uint = 0x4208;
 pub const PTRACE_PEEKSIGINFO: ::c_uint = 0x4209;
 
-pub const EPOLLWAKEUP: ::c_int = 0x20000000;
+// linux/fs.h
 
-pub const SEEK_DATA: ::c_int = 3;
-pub const SEEK_HOLE: ::c_int = 4;
+// Flags for preadv2/pwritev2
+pub const RWF_HIPRI: ::c_int = 0x00000001;
+pub const RWF_DSYNC: ::c_int = 0x00000002;
+pub const RWF_SYNC: ::c_int = 0x00000004;
+pub const RWF_NOWAIT: ::c_int = 0x00000008;
+pub const RWF_APPEND: ::c_int = 0x00000010;
 
 // linux/rtnetlink.h
 pub const TCA_PAD: ::c_ushort = 9;
@@ -1171,6 +1213,7 @@ pub const STATX_SIZE: ::c_uint = 0x0200;
 pub const STATX_BLOCKS: ::c_uint = 0x0400;
 pub const STATX_BASIC_STATS: ::c_uint = 0x07ff;
 pub const STATX_BTIME: ::c_uint = 0x0800;
+pub const STATX_MNT_ID: ::c_uint = 0x1000;
 pub const STATX_ALL: ::c_uint = 0x0fff;
 pub const STATX__RESERVED: ::c_int = 0x80000000;
 pub const STATX_ATTR_COMPRESSED: ::c_int = 0x0004;
@@ -1179,33 +1222,6 @@ pub const STATX_ATTR_APPEND: ::c_int = 0x0020;
 pub const STATX_ATTR_NODUMP: ::c_int = 0x0040;
 pub const STATX_ATTR_ENCRYPTED: ::c_int = 0x0800;
 pub const STATX_ATTR_AUTOMOUNT: ::c_int = 0x1000;
-
-// sys/auxv.h
-pub const AT_NULL: ::c_ulong = 0;
-pub const AT_IGNORE: ::c_ulong = 1;
-pub const AT_EXECFD: ::c_ulong = 2;
-pub const AT_PHDR: ::c_ulong = 3;
-pub const AT_PHENT: ::c_ulong = 4;
-pub const AT_PHNUM: ::c_ulong = 5;
-pub const AT_PAGESZ: ::c_ulong = 6;
-pub const AT_BASE: ::c_ulong = 7;
-pub const AT_FLAGS: ::c_ulong = 8;
-pub const AT_ENTRY: ::c_ulong = 9;
-pub const AT_NOTELF: ::c_ulong = 10;
-pub const AT_UID: ::c_ulong = 11;
-pub const AT_EUID: ::c_ulong = 12;
-pub const AT_GID: ::c_ulong = 13;
-pub const AT_EGID: ::c_ulong = 14;
-pub const AT_PLATFORM: ::c_ulong = 15;
-pub const AT_HWCAP: ::c_ulong = 16;
-pub const AT_CLKTCK: ::c_ulong = 17;
-// AT_* values 18 through 22 are reserved
-pub const AT_SECURE: ::c_ulong = 23;
-pub const AT_BASE_PLATFORM: ::c_ulong = 24;
-pub const AT_RANDOM: ::c_ulong = 25;
-pub const AT_HWCAP2: ::c_ulong = 26;
-
-pub const AT_EXECFN: ::c_ulong = 31;
 
 //sys/timex.h
 pub const ADJ_OFFSET: ::c_uint = 0x0001;
@@ -1319,11 +1335,7 @@ extern "C" {
         num: ::size_t,
         size: ::size_t,
         compar: ::Option<
-            unsafe extern "C" fn(
-                *const ::c_void,
-                *const ::c_void,
-                *mut ::c_void,
-            ) -> ::c_int,
+            unsafe extern "C" fn(*const ::c_void, *const ::c_void, *mut ::c_void) -> ::c_int,
         >,
         arg: *mut ::c_void,
     );
@@ -1341,22 +1353,10 @@ extern "C" {
         timeout: *mut ::timespec,
     ) -> ::c_int;
 
-    pub fn getrlimit64(
-        resource: ::__rlimit_resource_t,
-        rlim: *mut ::rlimit64,
-    ) -> ::c_int;
-    pub fn setrlimit64(
-        resource: ::__rlimit_resource_t,
-        rlim: *const ::rlimit64,
-    ) -> ::c_int;
-    pub fn getrlimit(
-        resource: ::__rlimit_resource_t,
-        rlim: *mut ::rlimit,
-    ) -> ::c_int;
-    pub fn setrlimit(
-        resource: ::__rlimit_resource_t,
-        rlim: *const ::rlimit,
-    ) -> ::c_int;
+    pub fn getrlimit64(resource: ::__rlimit_resource_t, rlim: *mut ::rlimit64) -> ::c_int;
+    pub fn setrlimit64(resource: ::__rlimit_resource_t, rlim: *const ::rlimit64) -> ::c_int;
+    pub fn getrlimit(resource: ::__rlimit_resource_t, rlim: *mut ::rlimit) -> ::c_int;
+    pub fn setrlimit(resource: ::__rlimit_resource_t, rlim: *const ::rlimit) -> ::c_int;
     pub fn prlimit(
         pid: ::pid_t,
         resource: ::__rlimit_resource_t,
@@ -1387,11 +1387,7 @@ extern "C" {
         mask: ::c_uint,
         statxbuf: *mut statx,
     ) -> ::c_int;
-    pub fn getrandom(
-        buf: *mut ::c_void,
-        buflen: ::size_t,
-        flags: ::c_uint,
-    ) -> ::ssize_t;
+    pub fn getrandom(buf: *mut ::c_void, buflen: ::size_t, flags: ::c_uint) -> ::ssize_t;
 
     pub fn memmem(
         haystack: *const ::c_void,
@@ -1420,6 +1416,27 @@ extern "C" {
         dirfd: ::c_int,
         path: *const ::c_char,
     ) -> ::c_int;
+    pub fn preadv2(
+        fd: ::c_int,
+        iov: *const ::iovec,
+        iovcnt: ::c_int,
+        offset: ::off_t,
+        flags: ::c_int,
+    ) -> ::ssize_t;
+    pub fn pwritev2(
+        fd: ::c_int,
+        iov: *const ::iovec,
+        iovcnt: ::c_int,
+        offset: ::off_t,
+        flags: ::c_int,
+    ) -> ::ssize_t;
+    pub fn renameat2(
+        olddirfd: ::c_int,
+        oldpath: *const ::c_char,
+        newdirfd: ::c_int,
+        newpath: *const ::c_char,
+        flags: ::c_uint,
+    ) -> ::c_int;
 }
 
 extern "C" {
@@ -1428,9 +1445,7 @@ extern "C" {
     pub fn glob64(
         pattern: *const ::c_char,
         flags: ::c_int,
-        errfunc: ::Option<
-            extern "C" fn(epath: *const ::c_char, errno: ::c_int) -> ::c_int,
-        >,
+        errfunc: ::Option<extern "C" fn(epath: *const ::c_char, errno: ::c_int) -> ::c_int>,
         pglob: *mut glob64_t,
     ) -> ::c_int;
     pub fn globfree64(pglob: *mut glob64_t);
@@ -1446,11 +1461,7 @@ extern "C" {
         cpuset: *const ::cpu_set_t,
     ) -> ::c_int;
     pub fn getpriority(which: ::__priority_which_t, who: ::id_t) -> ::c_int;
-    pub fn setpriority(
-        which: ::__priority_which_t,
-        who: ::id_t,
-        prio: ::c_int,
-    ) -> ::c_int;
+    pub fn setpriority(which: ::__priority_which_t, who: ::id_t, prio: ::c_int) -> ::c_int;
     pub fn pthread_getaffinity_np(
         thread: ::pthread_t,
         cpusetsize: ::size_t,
@@ -1484,28 +1495,13 @@ extern "C" {
         buflen: ::size_t,
         result: *mut *mut ::group,
     ) -> ::c_int;
-    pub fn pthread_getname_np(
-        thread: ::pthread_t,
-        name: *mut ::c_char,
-        len: ::size_t,
-    ) -> ::c_int;
-    pub fn pthread_setname_np(
-        thread: ::pthread_t,
-        name: *const ::c_char,
-    ) -> ::c_int;
+    pub fn pthread_getname_np(thread: ::pthread_t, name: *mut ::c_char, len: ::size_t) -> ::c_int;
+    pub fn pthread_setname_np(thread: ::pthread_t, name: *const ::c_char) -> ::c_int;
 }
 
 extern "C" {
-    pub fn dlmopen(
-        lmid: Lmid_t,
-        filename: *const ::c_char,
-        flag: ::c_int,
-    ) -> *mut ::c_void;
-    pub fn dlinfo(
-        handle: *mut ::c_void,
-        request: ::c_int,
-        info: *mut ::c_void,
-    ) -> ::c_int;
+    pub fn dlmopen(lmid: Lmid_t, filename: *const ::c_char, flag: ::c_int) -> *mut ::c_void;
+    pub fn dlinfo(handle: *mut ::c_void, request: ::c_int, info: *mut ::c_void) -> ::c_int;
 }
 
 cfg_if! {

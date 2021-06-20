@@ -1,7 +1,11 @@
-use core_foundation_sys::base::{Boolean, CFTypeID, CFTypeRef, OSStatus};
+#[cfg(target_os = "macos")]
+use core_foundation_sys::base::CFTypeRef;
+use core_foundation_sys::base::{Boolean, CFTypeID, OSStatus};
 use std::os::raw::{c_char, c_uint, c_void};
 
-use crate::base::{SecAccessRef, SecKeychainItemRef, SecKeychainRef};
+#[cfg(target_os = "macos")]
+use crate::base::SecKeychainItemRef;
+use crate::base::{SecAccessRef, SecKeychainRef};
 
 pub const SEC_KEYCHAIN_SETTINGS_VERS1: c_uint = 1;
 
@@ -82,9 +86,22 @@ pub enum SecAuthenticationType {
     Any = 0,
 }
 
+#[repr(i32)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum SecPreferencesDomain {
+    User = 0,
+    System = 1,
+    Common = 2,
+    Dynamic = 3,
+}
+
 extern "C" {
     pub fn SecKeychainGetTypeID() -> CFTypeID;
     pub fn SecKeychainCopyDefault(keychain: *mut SecKeychainRef) -> OSStatus;
+    pub fn SecKeychainCopyDomainDefault(
+        domain: SecPreferencesDomain,
+        keychain: *mut SecKeychainRef,
+    ) -> OSStatus;
     pub fn SecKeychainCreate(
         pathName: *const c_char,
         passwordLength: c_uint,
@@ -166,4 +183,10 @@ extern "C" {
         keychain: SecKeychainRef,
         newSettings: *const SecKeychainSettings,
     ) -> OSStatus;
+
+    #[cfg(target_os = "macos")]
+    pub fn SecKeychainGetUserInteractionAllowed(state: *mut Boolean) -> OSStatus;
+
+    #[cfg(target_os = "macos")]
+    pub fn SecKeychainSetUserInteractionAllowed(state: Boolean) -> OSStatus;
 }

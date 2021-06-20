@@ -1,4 +1,3 @@
-#![doc(html_root_url = "https://docs.rs/tokio/1.0.2")]
 #![allow(
     clippy::cognitive_complexity,
     clippy::large_enum_variant,
@@ -77,7 +76,7 @@
 //!
 //! ### Authoring libraries
 //!
-//! As a library author your goal should be to provide the lighest weight crate
+//! As a library author your goal should be to provide the lightest weight crate
 //! that is based on Tokio. To achieve this you should ensure that you only enable
 //! the features you need. This allows users to pick up your crate without having
 //! to enable unnecessary features.
@@ -301,7 +300,7 @@
 //! Beware though that this will pull in many extra dependencies that you may not
 //! need.
 //!
-//! - `full`: Enables all Tokio public API features listed below.
+//! - `full`: Enables all Tokio public API features listed below except `test-util`.
 //! - `rt`: Enables `tokio::spawn`, the basic (current thread) scheduler,
 //!         and non-scheduler utilities.
 //! - `rt-multi-thread`: Enables the heavier, multi-threaded, work-stealing scheduler.
@@ -411,7 +410,7 @@ mod util;
 /// # Why was `Stream` not included in Tokio 1.0?
 ///
 /// Originally, we had planned to ship Tokio 1.0 with a stable `Stream` type
-/// but unfortunetly the [RFC] had not been merged in time for `Stream` to
+/// but unfortunately the [RFC] had not been merged in time for `Stream` to
 /// reach `std` on a stable compiler in time for the 1.0 release of Tokio. For
 /// this reason, the team has decided to move all `Stream` based utilities to
 /// the [`tokio-stream`] crate. While this is not ideal, once `Stream` has made

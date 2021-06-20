@@ -1,8 +1,12 @@
 // Internal representation of an application.
 
+use crate::apps_registry::AppsError;
 use crate::generated::common::*;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use url::Host::Domain;
+use url::Url;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppsItem {
@@ -30,6 +34,10 @@ pub struct AppsItem {
     version: String,
     #[serde(default = "AppsItem::default_false")]
     removable: bool,
+    #[serde(default = "AppsItem::default_false")]
+    preloaded: bool,
+    #[serde(default = "AppsItem::default_option")]
+    manifest_etag: Option<String>,
 }
 
 impl AppsItem {
@@ -48,6 +56,8 @@ impl AppsItem {
             package_hash: AppsItem::default_string(),
             version: AppsItem::default_string(),
             removable: true,
+            preloaded: false,
+            manifest_etag: None,
         }
     }
 
@@ -63,6 +73,49 @@ impl AppsItem {
         app.set_manifest_url(&AppsItem::new_pwa_url(name, vhost_port));
         app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
         app
+    }
+
+    // Check if the app is a PWA app.
+    //   Return:
+    //     TRUE: If the manifest URL is http://cached.localhost/*
+    //     FALSE: Others.
+    pub fn is_pwa(&self) -> bool {
+        if let Ok(manifest_url) = Url::parse(&self.get_manifest_url()) {
+            return manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost");
+        }
+        false
+    }
+
+    // Return the storage path of the app to load the manifest file.
+    //   In:
+    //     config_path: The data path in the config file.
+    //   Return:
+    //     PWA app: {config_path}/cached/{app-name}
+    //     Package app: {config_path}/vroot/{app-name}
+    pub fn get_appdir(&self, config_path: &Path) -> Result<PathBuf, AppsError> {
+        if self.is_pwa() {
+            Ok(config_path.join("cached").join(&self.name))
+        } else {
+            Ok(config_path.join("vroot").join(&self.name))
+        }
+    }
+
+    // Return the orign that will be used by app in web runtime.
+    //   In: none
+    //   Return:
+    //     PWA app: update URL
+    //     Package app: manifest URL
+    pub fn runtime_origin(&self) -> String {
+        let url = if self.is_pwa() {
+            self.get_update_url()
+        } else {
+            self.get_manifest_url()
+        };
+        if let Ok(url) = Url::parse(&url) {
+            url.origin().unicode_serialization()
+        } else {
+            String::new()
+        }
     }
 
     pub fn get_name(&self) -> String {
@@ -161,8 +214,47 @@ impl AppsItem {
         self.manifest_hash = hash.to_owned();
     }
 
+    pub fn set_manifest_etag_str(&mut self, etag: &str) {
+        self.manifest_etag = if etag.is_empty() {
+            None
+        } else {
+            Some(etag.into())
+        };
+    }
+
+    pub fn set_manifest_etag(&mut self, etag: Option<String>) {
+        self.manifest_etag = etag;
+    }
+
+    pub fn get_manifest_etag(&self) -> Option<String> {
+        self.manifest_etag.clone()
+    }
+
     pub fn set_package_hash(&mut self, hash: &str) {
         self.package_hash = hash.to_owned();
+    }
+
+    pub fn set_preloaded(&mut self, preloaded: bool) {
+        self.preloaded = preloaded;
+    }
+
+    pub fn get_preloaded(&self) -> bool {
+        self.preloaded
+    }
+
+    pub fn is_found(&self, unique_name: &str, update_url: Option<&str>) -> bool {
+        let found = self.name == unique_name;
+        if self.update_url.is_empty() && update_url.is_none() {
+            // If the update_url is empty and the removable is true,
+            // allow the sideload one to override the preload one.
+            found && !self.removable
+        } else {
+            found
+        }
+    }
+
+    fn default_option() -> Option<String> {
+        None
     }
 
     fn default_string() -> String {
@@ -196,7 +288,10 @@ impl AppsItem {
         if vhost_port == 80 {
             format!("http://{}.localhost/manifest.webmanifest", &app_name)
         } else {
-            format!("http://{}.localhost:{}/manifest.webmanifest", &app_name, vhost_port)
+            format!(
+                "http://{}.localhost:{}/manifest.webmanifest",
+                &app_name, vhost_port
+            )
         }
     }
 
@@ -235,6 +330,9 @@ impl From<&AppsItem> for AppsObject {
             update_url: app.update_url.clone(),
             update_manifest_url: app.update_manifest_url.clone(),
             allowed_auto_download: false,
+            preloaded: app.preloaded,
+            progress: 0,
+            origin: app.runtime_origin(),
         }
     }
 }

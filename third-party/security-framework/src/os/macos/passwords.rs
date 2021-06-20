@@ -28,6 +28,7 @@ pub struct SecKeychainItemPassword {
 }
 
 impl fmt::Debug for SecKeychainItemPassword {
+    #[cold]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for _ in 0..self.data_len {
             f.write_char('•')?;
@@ -45,12 +46,14 @@ impl AsRef<[u8]> for SecKeychainItemPassword {
 
 impl Deref for SecKeychainItemPassword {
     type Target = [u8];
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.as_ref()
     }
 }
 
 impl Drop for SecKeychainItemPassword {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             SecKeychainItemFreeContent(ptr::null_mut(), self.data as *mut _);
@@ -73,6 +76,7 @@ impl SecKeychainItem {
     }
 
     /// Delete this item from its keychain
+    #[inline]
     pub fn delete(self) {
         unsafe {
             SecKeychainItemDelete(self.as_CFTypeRef() as *mut _);
@@ -135,6 +139,7 @@ pub fn find_generic_password(
 /// * `port`: The TCP/IP port number.
 /// * `protocol`: The protocol associated with this password.
 /// * `authentication_type`: The authentication scheme used.
+#[allow(clippy::too_many_arguments)]
 pub fn find_internet_password(
     keychains: Option<&[SecKeychain]>,
     server: &str,
@@ -187,6 +192,7 @@ pub fn find_internet_password(
 
 impl SecKeychain {
     /// Find application password in this keychain
+    #[inline]
     pub fn find_generic_password(
         &self,
         service: &str,
@@ -196,6 +202,8 @@ impl SecKeychain {
     }
 
     /// Find internet password in this keychain
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn find_internet_password(
         &self,
         server: &str,
@@ -219,6 +227,7 @@ impl SecKeychain {
     }
 
     /// Update existing or add new internet password
+    #[allow(clippy::too_many_arguments)]
     pub fn set_internet_password(
         &self,
         server: &str,
@@ -275,6 +284,7 @@ impl SecKeychain {
     /// Add application password to the keychain, without checking if it exists already
     ///
     /// See `set_generic_password()`
+    #[inline]
     pub fn add_generic_password(
         &self,
         service: &str,
@@ -299,6 +309,8 @@ impl SecKeychain {
     /// Add internet password to the keychain, without checking if it exists already
     ///
     /// See `set_internet_password()`
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn add_internet_password(
         &self,
         server: &str,

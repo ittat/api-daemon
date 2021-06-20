@@ -1,6 +1,6 @@
 [package]
 name = "daemon"
-version = "0.1.0"
+version = "3.2.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -12,6 +12,7 @@ path = "src/main.rs"
 [features]
 default = ["apps-service",
            "audiovolumemanager-service",
+           "breakpad",
            "contacts-service",
            "devicecapability-service",
            "geckobridge-service",
@@ -34,9 +35,6 @@ contacts-service = ["contacts_service"]
 daemon = ["daemonize"]
 # Enable the device capability service.
 devicecapability-service = ["devicecapability_service"]
-# Use the fake-tokens feature to let clients that can't
-# yet provide a proper token connect.
-fake-tokens = []
 # Enable the Gecko Bridge service
 geckobridge-service = ["geckobridge"]
 # Enable the libsignal protocol service.
@@ -70,6 +68,7 @@ common = { path = "../common" }
 contacts_service = { path = "../services/contacts", optional = true }
 daemonize = { version = "0.4.1", optional = true }
 devicecapability_service = { path = "../services/devicecapability", optional = true }
+flate2 = "1.0"
 futures-core = "0.3"
 futures-util = "0.3"
 libsignal_service = { path = "../services/libsignal", optional = true }
@@ -79,10 +78,13 @@ mime_guess = "2.0"
 nix = "0.19"
 parking_lot = "0.11"
 read-byte-slice = "0.1"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
+rusty-s3 = "0.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 settings_service = { path = "../services/settings", optional = true }
+signal-hook = "0.3"
 tcpsocket_service = { path = "../services/tcpsocket", optional = true }
 thiserror = "1.0"
 time_service = { path = "../services/time", optional = true }

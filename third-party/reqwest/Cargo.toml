@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "reqwest"
-version = "0.11.0"
+version = "0.11.3"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 autotests = true
 description = "higher level HTTP client library"
@@ -25,6 +25,7 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/seanmonstar/reqwest"
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [package.metadata.playground]
@@ -161,7 +162,7 @@ version = "0.4.0"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.hyper]
 version = "0.14"
-features = ["tcp", "http1", "http2", "client"]
+features = ["tcp", "http1", "http2", "client", "runtime"]
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.hyper-rustls]
@@ -183,10 +184,10 @@ version = "1.4"
 version = "0.4"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.mime]
-version = "0.3.7"
+version = "0.3.16"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.native-tls-crate]
-version = "0.2"
+version = "0.2.7"
 optional = true
 package = "native-tls"
 
@@ -223,7 +224,7 @@ version = "0.22"
 optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.tokio-socks]
-version = "0.5"
+version = "0.5.1"
 optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.tokio-util]
@@ -251,7 +252,7 @@ version = "0.8"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.hyper]
 version = "0.14"
-features = ["tcp", "stream", "http1", "http2", "client", "server"]
+features = ["tcp", "stream", "http1", "http2", "client", "server", "runtime"]
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.libflate]
@@ -277,7 +278,7 @@ version = "0.4.18"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
 version = "0.3.25"
-features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window", "FormData", "Blob", "BlobPropertyBag", "ServiceWorkerGlobalScope"]
+features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window", "FormData", "Blob", "BlobPropertyBag", "ServiceWorkerGlobalScope", "RequestCredentials"]
 [target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-test]
 version = "0.3"
 [target."cfg(windows)".dependencies.winreg]

@@ -1,5 +1,4 @@
 use crate::apps_item::AppsItem;
-use crate::apps_registry::AppsRegistry;
 use crate::apps_request::AppsRequest;
 use crate::apps_storage::{validate_package, PackageError};
 use crate::generated::common::*;
@@ -97,6 +96,9 @@ impl Drop for RestartChecker {
 }
 
 pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
+    use std::fs::{remove_file, set_permissions, Permissions};
+    use std::os::unix::fs::PermissionsExt;
+
     debug!("Starting apps actor");
     let path = {
         let shared = shared_data.lock();
@@ -109,11 +111,16 @@ pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
     }
 
     // Make sure the listener doesn't already exist.
-    let _ = ::std::fs::remove_file(&path);
+    let _ = remove_file(&path);
 
     match UnixListener::bind(&path) {
         Ok(listener) => {
             debug!("Starting thread of socket server in apps service");
+            // Make the socket path rw for all to allow non-root adbd to connect.
+            if let Err(err) = set_permissions(&path, Permissions::from_mode(0o666)) {
+                error!("Failed to set 0o666 permission on {} : {}", path, err);
+            }
+
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
@@ -270,10 +277,12 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
 }
 
 pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
-    let mut request = AppsRequest::new(shared_data.clone());
+    let mut request =
+        AppsRequest::new(shared_data.clone()).map_err(|_| AppsActorError::Internal)?;
+    let is_update = shared_data.lock().registry.get_by_update_url(url).is_some();
     let data_path = request.shared_data.lock().config.data_path.clone();
     let app = request
-        .download_and_apply_pwa(&data_path, url)
+        .download_and_apply_pwa(&data_path, url, is_update)
         .map_err(AppsActorError::ServiceError)?;
     request
         .shared_data
@@ -297,7 +306,8 @@ pub fn install_package(
         let shared = shared_data.lock();
         shared.config.data_path.clone()
     };
-    let path = Path::new(&data_path);
+    let current = std::env::current_dir().unwrap();
+    let path = current.join(&data_path);
 
     if !from_path.is_file() {
         return Err(AppsActorError::PackageMissing);
@@ -306,14 +316,9 @@ pub fn install_package(
         return Err(AppsActorError::InstallationDirNotFound);
     }
     let mut shared = shared_data.lock();
-    let app_name = AppsRegistry::sanitize_name(&manifest.get_name());
-    if app_name.is_empty() {
-        return Err(AppsActorError::InvalidAppName);
-    }
-    let update_url = format!("http://{}.localhost/manifest.webmanifest", &app_name);
     let app_name = shared
         .registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), None)
         .map_err(|_| AppsActorError::InvalidAppName)?;
 
     let download_dir = path.join(&format!("downloading/{}", &app_name));
@@ -322,13 +327,12 @@ pub fn install_package(
     fs::create_dir_all(download_dir.as_path())?;
     fs::copy(from_path, download_app.as_path())?;
 
-    let is_update = shared.registry.get_by_update_url(&update_url).is_some();
+    let is_update = shared.registry.get_first_by_name(&app_name).is_some();
     // Need create appsItem object and add to db to reflect status
     let mut apps_item = AppsItem::default(&app_name, shared.registry.get_vhost_port());
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     }
-    apps_item.set_update_url(&update_url);
     apps_item.set_install_state(AppsInstallState::Installing);
     shared
         .registry
@@ -380,7 +384,7 @@ pub fn uninstall(
 
     let _ = shared
         .registry
-        .uninstall_app(&app.name, &app.update_url, &data_path)
+        .uninstall_app(&app.name, &app.manifest_url, &data_path)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
@@ -541,6 +545,7 @@ fn test_manifest() {
 
 #[cfg(test)]
 fn test_install_app() {
+    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
     use common::traits::Service;
@@ -577,6 +582,7 @@ fn test_install_app() {
             uds_path: String::from("uds_path"),
             cert_type: String::from("test"),
             updater_socket: String::from("updater_socket"),
+            user_agent: String::from("user_agent"),
         };
         {
             let mut shared = shared_data.lock();
@@ -585,33 +591,22 @@ fn test_install_app() {
             let registry = AppsRegistry::initialize(&config, 4443).unwrap();
             shared.registry = registry;
             println!("shared.apps_objects.len: {}", shared.registry.count());
-            assert_eq!(4, shared.registry.count());
+            assert_eq!(6, shared.registry.count());
         }
 
-        let app_name: String;
+        // Install
         let manifest = validate_package(&src_app.as_path()).unwrap();
         let milisec_before_installing = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-
         if let Ok((apps_item, need_restart)) =
             install_package(&shared_data, &src_app.as_path(), &manifest)
         {
-            println!("App installed");
-            app_name = apps_item.get_name();
-            assert!(!need_restart);
-        } else {
-            println!("App installed failed");
-            panic!();
-        }
-        {
+            let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
                 Some(app) => {
-                    println!("Installation, success");
-                    println!("app.get_install_time() {:?}", app.get_install_time());
-                    println!("milisec_before_installing {:?}", milisec_before_installing);
                     assert_eq!(true, app.get_install_time() >= milisec_before_installing);
                 }
                 None => {
@@ -619,32 +614,36 @@ fn test_install_app() {
                     panic!();
                 }
             }
+            assert!(!need_restart);
+        } else {
+            println!("App installed failed");
+            panic!();
         }
 
         // Re-install
         let manifest = validate_package(&src_app.as_path()).unwrap();
-        let milisec_before_installing1 = SystemTime::now()
+        let milisec_before_reinstalling = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        if install_package(&shared_data, &src_app.as_path(), &manifest).is_ok() {
-            println!("App re-installed");
-        } else {
-            println!("App re-installed failed");
-            panic!();
-        }
+        if let Ok((apps_item, need_restart)) =
+            install_package(&shared_data, &src_app.as_path(), &manifest)
         {
+            let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
                 Some(app) => {
-                    println!("Re-Installation, success");
-                    assert_eq!(true, app.get_install_time() >= milisec_before_installing1);
+                    assert_eq!(true, app.get_install_time() >= milisec_before_reinstalling);
                 }
                 None => {
                     println!("Installation, failed");
                     panic!();
                 }
             }
+            assert!(!need_restart);
+        } else {
+            println!("App re-installed failed");
+            panic!();
         }
     }
 
@@ -686,6 +685,7 @@ fn test_install_app() {
 
 #[cfg(test)]
 fn test_get_all() {
+    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
     use common::traits::Service;
@@ -719,6 +719,7 @@ fn test_get_all() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {
@@ -735,7 +736,7 @@ fn test_get_all() {
             shared.state = AppsServiceState::Running;
         }
         let app_list = get_all(&shared_data).unwrap();
-        let expected = r#"[{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/calculator/manifest.webmanifest","allowed_auto_download":false},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/gallery/manifest.webmanifest","allowed_auto_download":false},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false}]"#;
+        let expected = r#"[{"name":"apps","install_state":"Installed","manifest_url":"http://apps.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/apps/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://apps.localhost:8443"},{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/calculator/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://calculator.localhost:8443"},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://system.localhost:8443"},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://gallery.localhost:8443"},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://launcher.localhost:8443"},{"name":"preloadpwa","install_state":"Installed","manifest_url":"http://cached.localhost:8443/preloadpwa/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://preloadpwa.domain.url/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"https://preloadpwa.domain.url"}]"#;
 
         assert_eq!(app_list, expected);
     }

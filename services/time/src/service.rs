@@ -4,9 +4,10 @@ use crate::generated::service::*;
 use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
+use common::observers::{ObserverTracker, ServiceObserverTracker};
 use common::traits::{
     CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, TrackerId,
+    SharedSessionContext, StateLogger, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{debug, error, info};
@@ -16,52 +17,51 @@ use std::collections::HashMap;
 use std::time::SystemTime as StdTime;
 use threadpool::ThreadPool;
 
+#[derive(Default)]
 pub struct SharedObj {
     event_broadcaster: TimeEventBroadcaster,
+    // An observer tracker, using the callback reason as key.
+    observers: ObserverTracker<CallbackReason, TimeObserverProxy>,
+}
 
-    // Current id that we hand out when an observer is registered.
-    id: DispatcherId,
-    observers: HashMap<CallbackReason, Vec<(TimeObserverProxy, DispatcherId)>>,
+impl StateLogger for SharedObj {
+    fn log(&self) {
+        info!(
+            "  {} registered observers ({} keys)",
+            self.observers.count(),
+            self.observers.key_count()
+        );
+
+        self.event_broadcaster.log();
+    }
 }
 
 impl SharedObj {
+    pub fn default() -> Self {
+        let setting_service = SettingsService::shared_state();
+
+        // the life time of SharedObj is the same as the process. We don't need to remove_observer
+        let id = setting_service.lock().db.add_observer(
+            "time.timezone",
+            ObserverType::FuncPtr(Box::new(SettingObserver {})),
+        );
+
+        info!("add_observer to SettingsService with id {}", id);
+        SharedObj {
+            ..Default::default()
+        }
+    }
+
     pub fn add_observer(
         &mut self,
         reason: CallbackReason,
         observer: &TimeObserverProxy,
     ) -> DispatcherId {
-        self.id += 1;
-
-        match self.observers.get_mut(&reason) {
-            Some(observers) => {
-                observers.push((observer.clone(), self.id));
-            }
-            None => {
-                let init = vec![(observer.clone(), self.id)];
-                self.observers.insert(reason, init);
-            }
-        }
-
-        self.id
+        self.observers.add(reason, observer.clone())
     }
 
-    pub fn remove_observer(&mut self, reason: CallbackReason, id: DispatcherId) {
-        for (key, entry) in self.observers.iter_mut() {
-            if reason != *key {
-                continue;
-            }
-            // Remove the vector items that have the matching id.
-            // Note: Once it's in stable Rustc, we could simply use:
-            // entry.drain_filter(|item| item.1 == id);
-            let mut i = 0;
-            while i != entry.len() {
-                if entry[i].1 == id {
-                    entry.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
+    pub fn remove_observer(&mut self, reason: CallbackReason, id: DispatcherId) -> bool {
+        self.observers.remove(&reason, id)
     }
 
     pub fn broadcast(&mut self, rn: CallbackReason, tz: String, time_delta: i64) {
@@ -78,11 +78,9 @@ impl SharedObj {
             }
         }
 
-        if let Some(observers) = self.observers.get_mut(&info.reason) {
-            for observer in observers {
-                observer.0.callback(info.clone());
-            }
-        }
+        self.observers.for_each(&info.reason, |proxy, _id| {
+            proxy.callback(info.clone());
+        });
 
         match info.reason {
             CallbackReason::TimeChanged => self.event_broadcaster.broadcast_time_changed(),
@@ -93,11 +91,7 @@ impl SharedObj {
 }
 
 lazy_static! {
-    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> = Shared::adopt(SharedObj {
-        event_broadcaster: TimeEventBroadcaster::default(),
-        id: 0,
-        observers: HashMap::new(),
-    });
+    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> = Shared::adopt(SharedObj::default());
 }
 
 #[derive(Clone, Copy)]
@@ -132,8 +126,7 @@ pub struct Time {
     shared_obj: Shared<SharedObj>,
     dispatcher_id: DispatcherId,
     proxy_tracker: TimeServiceProxyTracker,
-    observers: HashMap<ObjectRef, Vec<(CallbackReason, DispatcherId)>>,
-    setting_observer: (SettingObserver, DispatcherId),
+    observers: ServiceObserverTracker<CallbackReason>,
     origin_attributes: OriginAttributes,
 }
 
@@ -252,15 +245,7 @@ impl TimeMethods for Time {
         match self.proxy_tracker.get(&observer) {
             Some(TimeServiceProxy::TimeObserver(proxy)) => {
                 let id = self.shared_obj.lock().add_observer(reason, proxy);
-                match self.observers.get_mut(&observer) {
-                    Some(obs) => {
-                        obs.push((reason, id));
-                    }
-                    None => {
-                        let init = vec![(reason, id)];
-                        self.observers.insert(observer, init);
-                    }
-                }
+                self.observers.add(observer.into(), reason, id);
                 responder.resolve();
             }
             _ => {
@@ -279,23 +264,20 @@ impl TimeMethods for Time {
         info!("Remove observer {:?}", observer);
 
         if self.proxy_tracker.contains_key(&observer) {
-            if let Some(target) = self.observers.get_mut(&observer) {
-                let mut i = 0;
-                while i != target.len() {
-                    if target[i].0 == reason {
-                        self.shared_obj.lock().remove_observer(reason, target[i].1);
-                        target.remove(i);
-                    } else {
-                        i += 1;
-                    }
-                }
+            let shared_lock = &mut self.shared_obj.lock();
+            if self
+                .observers
+                .remove(observer.into(), reason, &mut shared_lock.observers)
+            {
                 responder.resolve();
-                return;
+            } else {
+                error!("Failed to find observer in list");
+                responder.reject();
             }
+        } else {
+            error!("Failed to find proxy for this observer");
+            responder.reject();
         }
-
-        error!("Failed to find proxy for this observer");
-        responder.reject();
     }
 }
 
@@ -313,29 +295,20 @@ impl Service<Time> for Time {
         _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<Time, String> {
-        info!("TimeoService::create");
+        info!("TimeService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = TimeEventDispatcher::from(helper, 0);
         let dispatcher_id = _shared_obj.lock().event_broadcaster.add(&event_dispatcher);
 
-        let mut service = Time {
+        Ok(Time {
             id: service_id,
             pool: ThreadPool::new(1),
             shared_obj: _shared_obj,
             dispatcher_id,
             proxy_tracker: HashMap::new(),
-            observers: HashMap::new(),
-            setting_observer: (SettingObserver {}, 0),
+            observers: ServiceObserverTracker::default(),
             origin_attributes: origin_attributes.clone(),
-        };
-
-        let setting_service = SettingsService::shared_state();
-        service.setting_observer.1 = setting_service.lock().db.add_observer(
-            "time.timezone",
-            ObserverType::FuncPtr(Box::new(service.setting_observer.0)),
-        );
-
-        Ok(service)
+        })
     }
 
     fn format_request(&mut self, _transport: &SessionSupport, message: &BaseMessage) -> String {
@@ -368,11 +341,6 @@ impl Drop for Time {
         );
         let shared_lock = &mut self.shared_obj.lock();
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
-
-        let setting_service = SettingsService::shared_state();
-        setting_service
-            .lock()
-            .db
-            .remove_observer("time.timezone", self.setting_observer.1);
+        self.observers.clear(&mut shared_lock.observers);
     }
 }

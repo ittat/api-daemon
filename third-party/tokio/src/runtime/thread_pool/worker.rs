@@ -337,7 +337,7 @@ impl Context {
     }
 
     fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
-        // Make sure thew orker is not in the **searching** state. This enables
+        // Make sure the worker is not in the **searching** state. This enables
         // another idle worker to try to steal work.
         core.transition_from_searching(&self.worker);
 
@@ -827,6 +827,6 @@ impl Shared {
     }
 
     fn ptr_eq(&self, other: &Shared) -> bool {
-        self as *const _ == other as *const _
+        std::ptr::eq(self, other)
     }
 }

@@ -33,6 +33,10 @@ impl<T> fmt::Debug for UnboundedSender<T> {
 ///
 /// Instances are created by the
 /// [`unbounded_channel`](unbounded_channel) function.
+///
+/// This receiver can be turned into a `Stream` using [`UnboundedReceiverStream`].
+///
+/// [`UnboundedReceiverStream`]: https://docs.rs/tokio-stream/0.1/tokio_stream/wrappers/struct.UnboundedReceiverStream.html
 pub struct UnboundedReceiver<T> {
     /// The channel receiver
     chan: chan::Rx<T, Semaphore>,
@@ -286,5 +290,21 @@ impl<T> UnboundedSender<T> {
     /// ```
     pub fn is_closed(&self) -> bool {
         self.chan.is_closed()
+    }
+
+    /// Returns `true` if senders belong to the same channel.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    /// let  tx2 = tx.clone();
+    /// assert!(tx.same_channel(&tx2));
+    ///
+    /// let (tx3, rx3) = tokio::sync::mpsc::unbounded_channel::<()>();
+    /// assert!(!tx3.same_channel(&tx2));
+    /// ```
+    pub fn same_channel(&self, other: &Self) -> bool {
+        self.chan.same_channel(&other.chan)
     }
 }

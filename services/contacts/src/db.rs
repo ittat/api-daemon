@@ -1,3 +1,4 @@
+use crate::cursor::ContactDbCursor;
 /// DB interface for the Contacts
 use crate::generated::common::*;
 use crate::preload::*;
@@ -14,9 +15,9 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::BufReader;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
+use threadpool::ThreadPool;
 use uuid::Uuid;
 
 #[cfg(not(target_os = "android"))]
@@ -68,19 +69,19 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
         category     TEXT    DEFAULT (''),
         category_json TEXT   DEFAULT ('')
     )"#,
-    r#"CREATE INDEX idx_name ON contact_main(name)"#,
-    r#"CREATE INDEX idx_famil_name ON contact_main(family_name)"#,
-    r#"CREATE INDEX idx_given_name ON contact_main(given_name)"#,
-    r#"CREATE INDEX idx_tel_number ON contact_main(tel_number)"#,
-    r#"CREATE INDEX idx_email ON contact_main(email)"#,
-    r#"CREATE INDEX idx_category ON contact_main(category)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_name ON contact_main(name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_famil_name ON contact_main(family_name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_given_name ON contact_main(given_name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_tel_number ON contact_main(tel_number)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_email ON contact_main(email)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_category ON contact_main(category)"#,
     r#"CREATE TABLE IF NOT EXISTS contact_additional (
         contact_id TEXT NOT NULL,
         data_type TEXT NOT NULL,
         value TEXT DEFAULT '',
         FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
-    r#"CREATE INDEX idx_additional ON contact_additional(contact_id)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_additional ON contact_additional(contact_id)"#,
     r#"CREATE TABLE IF NOT EXISTS blocked_numbers (
         number TEXT NOT NULL UNIQUE,
         match_key TEXT NOT NULL
@@ -154,7 +155,7 @@ fn format_phone_number(number: &str) -> String {
     }
 }
 
-fn row_to_contact_id(row: &Row) -> Result<String, Error> {
+pub fn row_to_contact_id(row: &Row) -> Result<String, Error> {
     let column = row.column_index("contact_id")?;
     Ok(row.get(column)?)
 }
@@ -370,7 +371,7 @@ fn save_str_field(stmt: &mut Statement, id: &str, stype: &str, data: &str) -> Re
 }
 
 impl ContactInfo {
-    fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
+    pub fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = id.into();
         let mut stmt = conn.prepare(
             "SELECT contact_id, name, family_name, given_name, tel_json, email_json,
@@ -396,6 +397,13 @@ impl ContactInfo {
                 category_json: row.get(13)?,
             })
         })?;
+
+        let mut rows = rows.peekable();
+        if rows.peek().is_none() {
+            return Err(Error::InvalidContactId(
+                "Try to fill contact with invalid contact id".to_string(),
+            ));
+        }
 
         for result_row in rows {
             let row = result_row?;
@@ -442,7 +450,7 @@ impl ContactInfo {
         Ok(())
     }
 
-    fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
+    pub fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = id.into();
         let mut stmt = conn.prepare(
             "SELECT contact_id, data_type, value FROM contact_additional WHERE contact_id=:id",
@@ -687,7 +695,7 @@ impl ContactInfo {
 // Creates a contacts database with a proper updater.
 // SQlite manages itself thread safety so we can use
 // multiple ones without having to use Rust mutexes.
-fn create_db() -> SqliteDb {
+pub fn create_db() -> SqliteDb {
     let db = match SqliteDb::open(DB_PATH, &mut ContactsSchemaManager {}, 1) {
         Ok(db) => db,
         Err(err) => panic!("Failed to open contacts db: {}", err),
@@ -699,132 +707,13 @@ fn create_db() -> SqliteDb {
     db
 }
 
-enum CursorCommand {
-    Next(Sender<Option<Vec<ContactInfo>>>),
-    Stop,
-}
-
-pub struct ContactDbCursor {
-    sender: Sender<CursorCommand>,
-}
-
-impl Iterator for ContactDbCursor {
-    type Item = Vec<ContactInfo>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (sender, receiver) = channel();
-
-        let _ = self.sender.send(CursorCommand::Next(sender));
-        match receiver.recv() {
-            Ok(msg) => msg,
-            Err(err) => {
-                error!("Failed to receive cursor response: {}", err);
-                None
-            }
-        }
-    }
-}
-
-impl Drop for ContactDbCursor {
-    fn drop(&mut self) {
-        debug!("ContactDbCursor::drop");
-        let _ = self.sender.send(CursorCommand::Stop);
-    }
-}
-
-impl ContactDbCursor {
-    pub fn new<F: 'static>(batch_size: i64, only_main_data: bool, prepare: F) -> Self
-    where
-        F: Fn(&Connection) -> Option<Statement> + Send,
-    {
-        let (sender, receiver) = channel();
-        let _ = std::thread::spawn(move || {
-            let mut db = create_db();
-            let connection = db.mut_connection();
-            let mut statement = match prepare(&connection) {
-                Some(statement) => statement,
-                None => {
-                    // Return an empty cursor.
-                    // We use a trick here where we create a request that will always return 0 results.
-                    connection
-                        .prepare("SELECT contact_id FROM contact_main where contact_id = ''")
-                        .unwrap()
-                }
-            };
-            let mut rows = statement.raw_query();
-            loop {
-                match receiver.recv() {
-                    Ok(cmd) => {
-                        match cmd {
-                            CursorCommand::Stop => break,
-                            CursorCommand::Next(sender) => {
-                                let mut results = vec![];
-                                loop {
-                                    match rows.next() {
-                                        Ok(None) => {
-                                            // We are out of items. Send the current item list or empty array.
-                                            if results.is_empty() {
-                                                debug!("ContactDbCursor, empty result");
-                                                let _ = sender.send(Some(vec![]));
-                                            } else {
-                                                debug!("Send results with len:{}", results.len());
-                                                let _ = sender.send(Some(results));
-                                            }
-                                            break;
-                                        }
-                                        Ok(Some(row)) => {
-                                            if let Ok(id) = row_to_contact_id(row) {
-                                                debug!("current id is {}", id);
-                                                let mut contact = ContactInfo::default();
-                                                if let Err(err) =
-                                                    contact.fill_main_data(&id, connection)
-                                                {
-                                                    error!("ContactDbCursor fill_main_data error: {}, continue", err);
-                                                    continue;
-                                                }
-
-                                                if !only_main_data {
-                                                    if let Err(err) = contact
-                                                        .fill_additional_data(&id, connection)
-                                                    {
-                                                        error!("ContactDbCursor fill_additional_data error: {}, continue", err);
-                                                        continue;
-                                                    }
-                                                }
-                                                results.push(contact);
-
-                                                if results.len() == batch_size as usize {
-                                                    let _ = sender.send(Some(results));
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            error!("Failed to fetch row: {}", err);
-                                            let _ = sender.send(None);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        error!("receiver.recv error: {}", err);
-                        break;
-                    }
-                }
-            }
-            debug!("Exiting contacts cursor thread");
-        });
-        Self { sender }
-    }
-}
-
 pub struct ContactsDb {
     // The underlying sqlite db.
     db: SqliteDb,
     // Handle to the event broadcaster to fire events when changing contacts.
     event_broadcaster: ContactsFactoryEventBroadcaster,
+    // Thread pool used for cursors.
+    cursors: ThreadPool,
 }
 
 impl ContactsDb {
@@ -832,6 +721,7 @@ impl ContactsDb {
         Self {
             db: create_db(),
             event_broadcaster,
+            cursors: ThreadPool::with_name("ContactsDbCursor".into(), 5),
         }
     }
 
@@ -1030,6 +920,7 @@ impl ContactsDb {
         Some(ContactDbCursor::new(
             batch_size,
             only_main_data,
+            &self.cursors,
             move |connection| {
                 let field: String = options.sort_by.into();
                 let order: String = options.sort_order.into();
@@ -1062,6 +953,7 @@ impl ContactsDb {
         Some(ContactDbCursor::new(
             batch_size,
             options.only_main_data,
+            &self.cursors,
             move |connection| {
                 let mut sql = String::from("SELECT contact_id FROM contact_main WHERE ");
                 let mut params = vec![];
@@ -1083,7 +975,14 @@ impl ContactsDb {
                             sql.push_str("email LIKE ?");
                         }
                         FilterByOption::Tel => {
-                            sql.push_str("tel_number LIKE ?");
+                            // Search contact tel by contains should use tel_json field.
+                            // The tel_number field contains the national code, search a
+                            // number which is nationl code may return wrong result.
+                            if options.filter_option == FilterOption::Contains {
+                                sql.push_str("tel_json LIKE ?");
+                            } else {
+                                sql.push_str("tel_number LIKE ?");
+                            }
                         }
                         FilterByOption::Category => {
                             sql.push_str("category LIKE ?");
@@ -1655,6 +1554,10 @@ impl ContactsDb {
 
         Ok(())
     }
+
+    pub fn log(&self) {
+        self.event_broadcaster.log();
+    }
 }
 
 fn rows_to_vec<I, R>(source: I) -> Vec<R>
@@ -1792,7 +1695,6 @@ mod test {
             assert_eq!(contact.name, "Jack".to_string());
         }
         // Verify sim_contact_2 is removed.
-        assert!(cursor.next().unwrap().is_empty());
         assert_eq!(db.count().unwrap(), 1);
 
         // To verify contact tel changed to 15229099710.
@@ -1877,7 +1779,6 @@ mod test {
         for i in 0..contacts.len() {
             assert_eq!(contacts[i].name, sim_contacts[i].name);
         }
-        assert!(cursor.next().unwrap().is_empty());
 
         db.import_sim_contacts(&[]).unwrap();
 

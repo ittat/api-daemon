@@ -59,7 +59,6 @@ export class Session {
     this.session_state = session_state;
     this.lazy_reconnect = lazy_reconnect;
     this.url = url;
-    // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken
     this.token = token;
 
     let ws_start = function (session) {
@@ -521,6 +520,8 @@ export class Session {
         }
         if (this.lazy_reconnect && !this.reconnecting) {
           this.clear("daemon restarting");
+          this.reconnecting = true;
+          this.reconnect_interval = 500;
           this.wait_reopen();
         }
         break;
@@ -528,37 +529,31 @@ export class Session {
   }
 
   wait_reopen() {
-    var self = this;
-    var delay = 500;
-    this.reconnecting = true;
-    var wait_time = function () {
-      delay = delay * 2;
-      if (delay > 8000) {
-        delay = 8000;
-      }
-      return delay;
-    };
-    var re_connect = function () {
-      if (self.connected) {
+    setTimeout(() => {
+      if (this.connected) {
         return;
       }
-      self.reconnect();
-      setTimeout(re_connect, wait_time());
-    };
-    // Get a new token if possible.
-    if (navigator.b2g && navigator.b2g.externalapi) {
-      navigator.b2g.externalapi.getToken().then(
-        (token) => {
-          self.token = token;
-          re_connect();
-        },
-        (e) => {
-          self.wait_reopen();
-        }
-      );
-    } else {
-      re_connect();
-    }
+      // Get a new token if possible.
+      if (navigator.b2g && navigator.b2g.externalapi) {
+        navigator.b2g.externalapi.getToken().then(
+          (token) => {
+            this.token = token;
+            this.reconnect();
+          },
+          (e) => {
+            this.wait_reopen();
+          }
+        );
+      } else {
+        this.reconnect();
+      }
+    }, () => {
+      this.reconnect_interval = this.reconnect_interval * 2;
+      if (this.reconnect_interval > 8000) {
+        return 8000;
+      }
+      return this.reconnect_interval;
+    });
   }
 
   has_service(name) {

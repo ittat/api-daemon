@@ -1,5 +1,5 @@
 use super::*;
-use core::convert::TryInto;
+use core::convert::{TryFrom, TryInto};
 
 #[cfg(feature = "serde")]
 use core::marker::PhantomData;
@@ -96,10 +96,13 @@ macro_rules! array_vec {
 ///
 /// let more_ints = ArrayVec::from_array_len([5, 6, 7, 8], 2);
 /// assert_eq!(more_ints.len(), 2);
+///
+/// let no_ints: ArrayVec<[u8; 5]> = ArrayVec::from_array_empty([1, 2, 3, 4, 5]);
+/// assert_eq!(no_ints.len(), 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct ArrayVec<A: Array> {
+pub struct ArrayVec<A> {
   len: u16,
   pub(crate) data: A,
 }
@@ -403,10 +406,19 @@ impl<A: Array> ArrayVec<A> {
   pub fn fill<I: IntoIterator<Item = A::Item>>(
     &mut self, iter: I,
   ) -> I::IntoIter {
+    // If this is written as a call to push for each element in iter, the
+    // compiler emits code that updates the length for every element. The
+    // additional complexity from that length update is worth nearly 2x in
+    // the runtime of this function.
     let mut iter = iter.into_iter();
-    for element in iter.by_ref().take(self.capacity() - self.len()) {
-      self.push(element);
+    let mut pushed = 0;
+    let to_take = self.capacity() - self.len();
+    let target = &mut self.data.as_slice_mut()[self.len as usize..];
+    for element in iter.by_ref().take(to_take) {
+      target[pushed] = element;
+      pushed += 1;
     }
+    self.len += pushed as u16;
     iter
   }
 
@@ -471,7 +483,9 @@ impl<A: Array> ArrayVec<A> {
   /// assert_eq!(av.try_insert(4, "five"), Some("five"));
   /// ```
   #[inline]
-  pub fn try_insert(&mut self, index: usize, item: A::Item) -> Option<A::Item> {
+  pub fn try_insert(
+    &mut self, index: usize, mut item: A::Item,
+  ) -> Option<A::Item> {
     assert!(
       index <= self.len as usize,
       "ArrayVec::try_insert> index {} is out of bounds {}",
@@ -479,11 +493,23 @@ impl<A: Array> ArrayVec<A> {
       self.len
     );
 
-    if let Some(x) = self.try_push(item) {
-      return Some(x);
+    // A previous implementation used self.try_push and slice::rotate_right
+    // rotate_right and rotate_left generate a huge amount of code and fail to
+    // inline; calling them here incurs the cost of all the cases they
+    // handle even though we're rotating a usually-small array by a constant
+    // 1 offset. This swap-based implementation benchmarks much better for
+    // small array lengths in particular.
+
+    if (self.len as usize) < A::CAPACITY {
+      self.len += 1;
+    } else {
+      return Some(item);
     }
 
-    self.as_mut_slice()[index..].rotate_right(1);
+    let target = &mut self.as_mut_slice()[index..];
+    for i in 0..target.len() {
+      core::mem::swap(&mut item, &mut target[i]);
+    }
     return None;
   }
 
@@ -601,7 +627,17 @@ impl<A: Array> ArrayVec<A> {
   pub fn remove(&mut self, index: usize) -> A::Item {
     let targets: &mut [A::Item] = &mut self.deref_mut()[index..];
     let item = take(&mut targets[0]);
-    targets.rotate_left(1);
+
+    // A previous implementation used rotate_left
+    // rotate_right and rotate_left generate a huge amount of code and fail to
+    // inline; calling them here incurs the cost of all the cases they
+    // handle even though we're rotating a usually-small array by a constant
+    // 1 offset. This swap-based implementation benchmarks much better for
+    // small array lengths in particular.
+
+    for i in 0..targets.len() - 1 {
+      targets.swap(i, i + 1);
+    }
     self.len -= 1;
     item
   }
@@ -921,6 +957,37 @@ impl<A: Array> ArrayVec<A> {
   }
 }
 
+impl<A> ArrayVec<A> {
+  /// Wraps up an array as a new empty `ArrayVec`.
+  ///
+  /// If you want to simply use the full array, use `from` instead.
+  ///
+  /// ## Examples
+  ///
+  /// This method in particular allows to create values for statics:
+  ///
+  /// ```rust
+  /// # use tinyvec::ArrayVec;
+  /// static DATA: ArrayVec<[u8; 5]> = ArrayVec::from_array_empty([0; 5]);
+  /// assert_eq!(DATA.len(), 0);
+  /// ```
+  ///
+  /// But of course it is just an normal empty `ArrayVec`:
+  ///
+  /// ```rust
+  /// # use tinyvec::ArrayVec;
+  /// let mut data = ArrayVec::from_array_empty([1, 2, 3, 4]);
+  /// assert_eq!(&data[..], &[]);
+  /// data.push(42);
+  /// assert_eq!(&data[..], &[42]);
+  /// ```
+  #[inline]
+  #[must_use]
+  pub const fn from_array_empty(data: A) -> Self {
+    Self { data, len: 0 }
+  }
+}
+
 #[cfg(feature = "grab_spare_slice")]
 impl<A: Array> ArrayVec<A> {
   /// Obtain the shared slice of the array _after_ the active memory.
@@ -1157,6 +1224,41 @@ impl<A: Array> From<A> for ArrayVec<A> {
   }
 }
 
+/// The error type returned when a conversion from a slice to an [`ArrayVec`]
+/// fails.
+#[derive(Debug, Copy, Clone)]
+pub struct TryFromSliceError(());
+
+impl<T, A> TryFrom<&'_ [T]> for ArrayVec<A>
+where
+  T: Clone + Default,
+  A: Array<Item = T>,
+{
+  type Error = TryFromSliceError;
+
+  #[inline]
+  #[must_use]
+  /// The output has a length equal to that of the slice, with the same capacity
+  /// as `A`.
+  fn try_from(slice: &[T]) -> Result<Self, Self::Error> {
+    if slice.len() > A::CAPACITY {
+      Err(TryFromSliceError(()))
+    } else {
+      let mut arr = ArrayVec::new();
+      // We do not use ArrayVec::extend_from_slice, because it looks like LLVM
+      // fails to deduplicate all the length-checking logic between the
+      // above if and the contents of that method, thus producing much
+      // slower code. Unlike many of the other optimizations in this
+      // crate, this one is worth keeping an eye on. I see no reason, for
+      // any element type, that these should produce different code. But
+      // they do. (rustc 1.51.0)
+      arr.set_len(slice.len());
+      arr.as_mut_slice().clone_from_slice(slice);
+      Ok(arr)
+    }
+  }
+}
+
 impl<A: Array> FromIterator<A::Item> for ArrayVec<A> {
   #[inline]
   #[must_use]
@@ -1387,11 +1489,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Binary::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1404,11 +1512,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Debug::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1421,11 +1535,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Display::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1438,11 +1558,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       LowerExp::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1455,11 +1581,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       LowerHex::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1472,11 +1604,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Octal::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1489,11 +1627,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Pointer::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1506,11 +1650,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       UpperExp::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1523,11 +1673,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       UpperHex::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }

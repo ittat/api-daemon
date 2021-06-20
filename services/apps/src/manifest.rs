@@ -51,6 +51,12 @@ pub struct B2GFeatures {
     serviceworker: Option<Value>,
     #[serde(default = "default_as_false")]
     core: bool,
+    #[serde(default = "default_as_false")]
+    cursor: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    focus_color: Option<String>,
     #[serde(default = "B2GFeatures::default_hashmap")]
     dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
 }
@@ -87,7 +93,7 @@ pub struct Icons {
     r#type: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Manifest {
     name: String,
     #[serde(default = "String::new")]
@@ -98,6 +104,20 @@ pub struct Manifest {
     version: String,
     icons: Option<Value>, // to backward compatible with icons object
     b2g_features: Option<B2GFeatures>,
+    #[serde(default = "String::new")]
+    display: String,
+    #[serde(default = "String::new")]
+    short_name: String,
+    #[serde(default = "String::new")]
+    scope: String,
+    #[serde(default = "String::new")]
+    dir: String,
+    #[serde(default = "String::new")]
+    lang: String,
+    #[serde(default = "String::new")]
+    orientation: String,
+    #[serde(default = "String::new")]
+    theme_color: String,
 }
 
 fn default_as_start_url() -> String {
@@ -127,10 +147,8 @@ impl Manifest {
         Manifest {
             name: name.to_string(),
             launch_path: launch_path.to_string(),
-            start_url: default_as_start_url(),
             version: version.to_string(),
-            icons: None,
-            b2g_features: None,
+            ..Default::default()
         }
     }
 

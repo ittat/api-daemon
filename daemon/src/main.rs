@@ -11,16 +11,22 @@ use std::io::Write;
 mod services_macro;
 mod api_server;
 mod config;
+#[cfg(feature = "breakpad")]
+mod crash_uploader;
 mod global_context;
 mod session;
+mod session_counter;
 mod shared_state;
 mod uds_server;
 
 use crate::config::Config;
 use crate::global_context::GlobalContext;
+use crate::session_counter::SessionKind;
 use crate::shared_state::{enabled_services, SharedStateKind};
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use log::{error, info};
+use signal_hook::consts::signal::*;
+use signal_hook::iterator::Signals;
 use std::thread;
 use vhost_server::config::VhostApi;
 
@@ -86,6 +92,54 @@ fn display_build_info(config: &Config, registrar: &RemoteServicesRegistrar) {
     info!("Services: {:?}", enabled_services(config, registrar));
 }
 
+// Logs status information about the daemon.
+fn log_daemon_status(global_context: &GlobalContext) {
+    let state = global_context.service_state();
+    let lock = state.lock();
+
+    // Display the numbe of active sessions.
+    info!(
+        "Active sessions: websocket={}, uds={}",
+        SessionKind::Ws.count(),
+        SessionKind::Uds.count()
+    );
+
+    // List all available services and whether their shared state is locked.
+    for (name, service) in lock.iter() {
+        info!(
+            "Service: {:<25} {}",
+            name,
+            if service.is_locked() {
+                "[locked]"
+            } else {
+                "[ok]"
+            }
+        );
+
+        // Log the service shared state if possible.
+        if !service.is_locked() {
+            service.log();
+        }
+    }
+}
+
+// Installs a signal handler for SIGUSR1 and display information about the
+// daemon state when the signal is handled.
+fn install_signal_handler(global_context: GlobalContext) {
+    let mut signals = Signals::new(&[SIGUSR1]).expect("Failed to create SIGUSR1 signal handler");
+    let _thread = thread::spawn(move || {
+        for signal in &mut signals {
+            match signal {
+                SIGUSR1 => {
+                    info!("SIGUSR1 signal received!");
+                    log_daemon_status(&global_context);
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
+}
+
 fn main() {
     #[cfg(feature = "daemon")]
     {
@@ -111,20 +165,33 @@ fn main() {
         );
 
         display_build_info(&config, &registrar);
+
+        let global_context = GlobalContext::new(&config);
+
         // Init breakpad
         #[cfg(feature = "breakpad")]
         {
-            use std::panic;
-            let log_path = config.general.log_path.clone();
-            info!("save mini dump into file: {}", log_path);
-            let exception_handler = init_breakpad(log_path);
+            let mut log_path = config.general.log_path.clone();
+            log_path.push_str("/api-daemon-crashes");
+            info!("Saving mini dump into directory {}", log_path);
+            let _ = std::fs::create_dir_all(&log_path);
+            let exception_handler = init_breakpad(log_path.clone());
             // Write minidump while panic
-            panic::set_hook(Box::new(move |_| {
+            std::panic::set_hook(Box::new(move |_| {
                 write_minidump(exception_handler);
             }));
+
+            let uploader = crash_uploader::CrashUploader::new(&log_path);
+            let can_upload = uploader.can_upload(&global_context);
+            info!("Will upload crash reports: {}", can_upload);
+            if can_upload {
+                uploader.upload_reports();
+            } else {
+                uploader.wipe_reports();
+            }
         }
 
-        let global_context = GlobalContext::new(&config);
+        install_signal_handler(global_context.clone());
 
         // Start the vhost server
         #[cfg(feature = "virtual-host")]

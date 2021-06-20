@@ -1,3 +1,4 @@
+use super::assert_future;
 use crate::future::FutureExt;
 use core::iter::FromIterator;
 use core::mem;
@@ -38,7 +39,14 @@ pub fn select_all<I>(iter: I) -> SelectAll<I::Item>
         inner: iter.into_iter().collect()
     };
     assert!(!ret.inner.is_empty());
-    ret
+    assert_future::<(<I::Item as Future>::Output, usize, Vec<I::Item>), _>(ret)
+}
+
+impl<Fut> SelectAll<Fut> {
+    /// Consumes this combinator, returning the underlying futures.
+    pub fn into_inner(self) -> Vec<Fut> {
+        self.inner
+    }
 }
 
 impl<Fut: Future + Unpin> Future for SelectAll<Fut> {

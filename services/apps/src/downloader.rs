@@ -2,7 +2,7 @@
 use log::{debug, error};
 use nix::unistd;
 use reqwest::blocking::Response;
-use reqwest::header;
+use reqwest::header::{self, HeaderMap};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,21 +26,45 @@ pub enum DownloadError {
     Canceled,
 }
 
+#[derive(Debug)]
+pub enum DownloaderInfo {
+    Progress(u8),
+    Etag(String),
+    Done,
+}
+
+impl PartialEq for DownloadError {
+    fn eq(&self, right: &DownloadError) -> bool {
+        format!("{:?}", self) == format!("{:?}", right)
+    }
+}
+
+#[derive(Clone)]
 pub struct Downloader {
     client: reqwest::blocking::Client,
 }
 
-impl Default for Downloader {
-    fn default() -> Self {
-        Downloader {
-            client: reqwest::blocking::Client::new(),
-        }
-    }
-}
-
 impl Downloader {
+    pub fn new(user_agent: &str, lang: &str) -> Result<Self, DownloadError> {
+        let mut headers = header::HeaderMap::new();
+        match header::HeaderValue::from_str(lang) {
+            Ok(header) => headers.insert(header::ACCEPT_LANGUAGE, header),
+            _ => headers.insert(
+                header::ACCEPT_LANGUAGE,
+                header::HeaderValue::from_static("en-US"),
+            ),
+        };
+
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(user_agent)
+            .default_headers(headers)
+            .build()
+            .map_err(DownloadError::Request)?;
+        Ok(Downloader { client })
+    }
+
     // Downloads a resource at a given url and save it to the path.
-    pub fn download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
+    pub fn simple_download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
         debug!("download: {}", url);
 
         let mut response = self
@@ -64,25 +88,35 @@ impl Downloader {
     }
 
     // Downloads a resource at a given url and save it to the path.
-    pub fn cancelable_download<P: AsRef<Path>>(
+    pub fn download<P: AsRef<Path>>(
         &self,
         url: &str,
         path: P,
-    ) -> (Receiver<Result<(), DownloadError>>, Sender<()>) {
+        extra_headers: Option<HeaderMap>,
+    ) -> (Receiver<Result<DownloaderInfo, DownloadError>>, Sender<()>) {
         debug!("download: {}", url);
 
         let (cancel_sender, canceled_recv) = channel();
         let file_path_buf = path.as_ref().to_path_buf();
         let (sender, receiver) = channel();
 
-        let response = self.client.get(url).send();
+        let mut headers = HeaderMap::new();
+        if let Some(extra) = extra_headers {
+            headers = extra;
+        }
+
+        let response = self.client.get(url).headers(headers).send();
 
         thread::Builder::new()
             .name("apps_download".into())
             .spawn(move || {
                 let result = Downloader::single_download(response, &file_path_buf, canceled_recv);
                 debug!("result {:?}", result);
-                let _ = sender.send(result);
+                if let Ok(Some(etag)) = result {
+                    let _ = sender.send(Ok(DownloaderInfo::Etag(etag)));
+                }
+                let _ = sender.send(Ok(DownloaderInfo::Progress(100)));
+                let _ = sender.send(Ok(DownloaderInfo::Done));
             })
             .expect("Failed to start downloading thread");
 
@@ -93,7 +127,7 @@ impl Downloader {
         response: Result<Response, reqwest::Error>,
         path: P,
         canceled_recv: Receiver<()>,
-    ) -> Result<(), DownloadError> {
+    ) -> Result<Option<String>, DownloadError> {
         let mut response = response.map_err(DownloadError::Request)?;
 
         // Check that we didn't receive a HTTP Error
@@ -137,7 +171,14 @@ impl Downloader {
 
         fs::copy(&tmp_file.path, path).map_err(DownloadError::Io)?;
 
-        Ok(())
+        if let Some(val) = response.headers().get(header::ETAG) {
+            match val.to_str() {
+                Ok(etag) => Ok(Some(etag.into())),
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -172,8 +213,10 @@ fn downloader_download_file() {
 
     let _ = env_logger::try_init();
     let current = env::current_dir().unwrap();
+    let user_agent = "Mozilla/5.0 (Mobile; rv:84.0) Gecko/84.0 Firefox/84.0 KAIOS/3.0";
+    let lang = "en-US";
 
-    let downloader = Downloader::default();
+    let downloader = Downloader::new(user_agent, lang).unwrap();
     let file_path = current.join("test-fixtures/sample.webmanifest");
     let res = downloader.download(
         "https://seinlin.org/apps/packages/sample/manifest.webapp",

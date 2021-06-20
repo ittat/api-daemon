@@ -140,6 +140,9 @@ pub(crate) fn set_linger(socket: TcpSocket, dur: Option<Duration>) -> io::Result
     syscall!(setsockopt(
         socket,
         libc::SOL_SOCKET,
+        #[cfg(target_vendor = "apple")]
+        libc::SO_LINGER_SEC,
+        #[cfg(not(target_vendor = "apple"))]
         libc::SO_LINGER,
         &val as *const libc::linger as *const libc::c_void,
         size_of::<libc::linger>() as libc::socklen_t,
@@ -154,6 +157,9 @@ pub(crate) fn get_linger(socket: TcpSocket) -> io::Result<Option<Duration>> {
     syscall!(getsockopt(
         socket,
         libc::SOL_SOCKET,
+        #[cfg(target_vendor = "apple")]
+        libc::SO_LINGER_SEC,
+        #[cfg(not(target_vendor = "apple"))]
         libc::SO_LINGER,
         &mut val as *mut _ as *mut _,
         &mut len,
@@ -423,7 +429,12 @@ pub fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream, Socket
     // On platforms that support it we can use `accept4(2)` to set `NONBLOCK`
     // and `CLOEXEC` in the call to accept the connection.
     #[cfg(any(
-        target_os = "android",
+        // Android x86's seccomp profile forbids calls to `accept4(2)`
+        // See https://github.com/tokio-rs/mio/issues/1445 for details
+        all(
+            not(target_arch="x86"),
+            target_os = "android"
+        ),
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "illumos",
@@ -444,7 +455,15 @@ pub fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream, Socket
     // But not all platforms have the `accept4(2)` call. Luckily BSD (derived)
     // OSes inherit the non-blocking flag from the listener, so we just have to
     // set `CLOEXEC`.
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "solaris"))]
+    #[cfg(any(
+        all(
+            target_arch = "x86",
+            target_os = "android"
+        ),
+        target_os = "ios", 
+        target_os = "macos", 
+        target_os = "solaris"
+    ))]
     let stream = {
         syscall!(accept(
             listener.as_raw_fd(),
@@ -452,7 +471,15 @@ pub fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream, Socket
             &mut length
         ))
         .map(|socket| unsafe { net::TcpStream::from_raw_fd(socket) })
-        .and_then(|s| syscall!(fcntl(s.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC)).map(|_| s))
+        .and_then(|s| {
+            syscall!(fcntl(s.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC))?;
+    
+            // See https://github.com/tokio-rs/mio/issues/1450
+            #[cfg(all(target_arch = "x86",target_os = "android"))]
+            syscall!(fcntl(s.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK))?;
+            
+            Ok(s)
+        })
     }?;
 
     // This is safe because `accept` calls above ensures the address

@@ -127,13 +127,15 @@ impl FromSql for AppsUpdateState {
 // "manifest_url": "http://system.localhost/manifest.webmanifest",
 // "update_manifest_url": "http://cached.localhost/appname/update.webmanifest",
 // "update_url": "https://store.server/system/manifest.webmanifest",
+// "preloaded": false,
 // "status": "Enabled",
 // "install_state": "Installed",
 // "update_state": "Idle",
 // "install_time": 1584670494752,
 // "update_time": 1593708589477,
 // "manifest_hash": "cce24c3687d93c1ee00815d575bf4e6d",
-// "package_hash": "fe16801bcceb73d135fbd4ac297edc2d"
+// "package_hash": "fe16801bcceb73d135fbd4ac297edc2d",
+// "manifest_etag": "W/\"5417c9e27c1c32b6dc4adf8bffe0030848c60a4c071440159573507d109ff4b2\""
 // },
 
 pub struct AppsSchemaManager {}
@@ -145,13 +147,15 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         manifest_url TEXT NOT NULL UNIQUE,
                                         update_manifest_url TEXT NOT NULL,
                                         update_url TEXT NOT NULL,
+                                        preloaded BOOL,
                                         status TEXT NOT NULL,
                                         install_state TEXT NOT NULL,
                                         update_state TEXT NOT NULL,
                                         install_time INTEGER,
                                         update_time INTEGER,
                                         manifest_hash TEXT,
-                                        package_hash TEXT)"#];
+                                        package_hash TEXT,
+                                        manifest_etag TEXT)"#];
 
 impl DatabaseUpgrader for AppsSchemaManager {
     fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
@@ -179,10 +183,12 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let manifest_url: String = row.get("manifest_url")?;
     let update_manifest_url: String = row.get("update_manifest_url")?;
     let update_url: String = row.get("update_url")?;
+    let preloaded: bool = row.get("preloaded")?;
     let install_time: i64 = row.get("install_time")?;
     let update_time: i64 = row.get("update_time")?;
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
+    let manifest_etag: String = row.get("manifest_etag")?;
 
     let mut item = AppsItem::new(&name);
     item.set_manifest_url(&manifest_url);
@@ -190,6 +196,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_removable(removable);
     item.set_update_manifest_url(&update_manifest_url);
     item.set_update_url(&update_url);
+    item.set_preloaded(preloaded);
     item.set_status(row.get("status")?);
     item.set_install_state(row.get("install_state")?);
     item.set_update_state(row.get("update_state")?);
@@ -197,6 +204,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_update_time(update_time as _);
     item.set_manifest_hash(&manifest_hash);
     item.set_package_hash(&package_hash);
+    item.set_manifest_etag_str(&manifest_etag);
     Ok(item)
 }
 
@@ -235,26 +243,30 @@ impl RegistryDb {
                                      manifest_url,
                                      update_manifest_url,
                                      update_url,
+                                     preloaded,
                                      status,
                                      install_state,
                                      update_state,
                                      install_time,
                                      update_time,
                                      manifest_hash,
-                                     package_hash)
+                                     package_hash,
+                                     manifest_etag)
                              VALUES(:name,
                                     :version,
                                     :removable,
                                     :manifest_url,
                                     :update_manifest_url,
                                     :update_url,
+                                    :preloaded,
                                     :status,
                                     :install_state,
                                     :update_state,
                                     :install_time,
                                     :update_time,
                                     :manifest_hash,
-                                    :package_hash)"#,
+                                    :package_hash,
+                                    :manifest_etag)"#,
             )?;
 
             let status: String = app.get_status().into();
@@ -267,6 +279,7 @@ impl RegistryDb {
                 ":manifest_url": &app.get_manifest_url(),
                 ":update_manifest_url": &app.get_update_manifest_url(),
                 ":update_url": &app.get_update_url(),
+                ":preloaded": &app.get_preloaded(),
                 ":status": &status,
                 ":install_state": &install_state,
                 ":update_state": &update_state,
@@ -274,6 +287,7 @@ impl RegistryDb {
                 ":update_time": &(app.get_update_time() as i64),
                 ":manifest_hash": &app.get_manifest_hash(),
                 ":package_hash": &app.get_package_hash(),
+                ":manifest_etag": &app.get_manifest_etag().unwrap_or_else(|| "".into()),
             })?;
         }
         tx.commit()?;

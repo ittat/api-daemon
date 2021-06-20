@@ -86,6 +86,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
+use std::thread;
 
 use crate::mpsc::queue::Queue;
 
@@ -1020,8 +1021,10 @@ impl<T> Receiver<T> {
     /// only when you've otherwise arranged to be notified when the channel is
     /// no longer empty.
     ///
-    /// This function will panic if called after `try_next` or `poll_next` has
-    /// returned `None`.
+    /// This function returns:
+    /// * `Ok(Some(t))` when message is fetched
+    /// * `Ok(None)` when channel is closed and no messages left in the queue
+    /// * `Err(e)` when there are no messages available, but channel is not yet closed
     pub fn try_next(&mut self) -> Result<Option<T>, TryRecvError> {
         match self.next_message() {
             Poll::Ready(msg) => {
@@ -1032,7 +1035,10 @@ impl<T> Receiver<T> {
     }
 
     fn next_message(&mut self) -> Poll<Option<T>> {
-        let inner = self.inner.as_mut().expect("Receiver::next_message called after `None`");
+        let inner = match self.inner.as_mut() {
+            None => return Poll::Ready(None),
+            Some(inner) => inner,
+        };
         // Pop off a message
         match unsafe { inner.message_queue.pop_spin() } {
             Some(msg) => {
@@ -1047,7 +1053,12 @@ impl<T> Receiver<T> {
             }
             None => {
                 let state = decode_state(inner.state.load(SeqCst));
-                if state.is_open || state.num_messages != 0 {
+                if state.is_closed() {
+                    // If closed flag is set AND there are no pending messages
+                    // it means end of stream
+                    self.inner = None;
+                    Poll::Ready(None)
+                } else {
                     // If queue is open, we need to return Pending
                     // to be woken up when new messages arrive.
                     // If queue is closed but num_messages is non-zero,
@@ -1056,11 +1067,6 @@ impl<T> Receiver<T> {
                     // so we need to park until sender unparks the task
                     // after queueing the message.
                     Poll::Pending
-                } else {
-                    // If closed flag is set AND there are no pending messages
-                    // it means end of stream
-                    self.inner = None;
-                    Poll::Ready(None)
                 }
             }
         }
@@ -1126,8 +1132,26 @@ impl<T> Drop for Receiver<T> {
         // Drain the channel of all pending messages
         self.close();
         if self.inner.is_some() {
-            while let Poll::Ready(Some(..)) = self.next_message() {
-                // ...
+            loop {
+                match self.next_message() {
+                    Poll::Ready(Some(_)) => {}
+                    Poll::Ready(None) => break,
+                    Poll::Pending => {
+                        let state = decode_state(self.inner.as_ref().unwrap().state.load(SeqCst));
+
+                        // If the channel is closed, then there is no need to park.
+                        if state.is_closed() {
+                            break;
+                        }
+
+                        // TODO: Spinning isn't ideal, it might be worth
+                        // investigating using a condvar or some other strategy
+                        // here. That said, if this case is hit, then another thread
+                        // is about to push the value into the queue and this isn't
+                        // the only spinlock in the impl right now.
+                        thread::yield_now();
+                    }
+                }
             }
         }
     }
@@ -1150,8 +1174,10 @@ impl<T> UnboundedReceiver<T> {
     /// only when you've otherwise arranged to be notified when the channel is
     /// no longer empty.
     ///
-    /// This function will panic if called after `try_next` or `poll_next` has
-    /// returned `None`.
+    /// This function returns:
+    /// * `Ok(Some(t))` when message is fetched
+    /// * `Ok(None)` when channel is closed and no messages left in the queue
+    /// * `Err(e)` when there are no messages available, but channel is not yet closed
     pub fn try_next(&mut self) -> Result<Option<T>, TryRecvError> {
         match self.next_message() {
             Poll::Ready(msg) => {
@@ -1162,7 +1188,10 @@ impl<T> UnboundedReceiver<T> {
     }
 
     fn next_message(&mut self) -> Poll<Option<T>> {
-        let inner = self.inner.as_mut().expect("Receiver::next_message called after `None`");
+        let inner = match self.inner.as_mut() {
+            None => return Poll::Ready(None),
+            Some(inner) => inner,
+        };
         // Pop off a message
         match unsafe { inner.message_queue.pop_spin() } {
             Some(msg) => {
@@ -1173,7 +1202,12 @@ impl<T> UnboundedReceiver<T> {
             }
             None => {
                 let state = decode_state(inner.state.load(SeqCst));
-                if state.is_open || state.num_messages != 0 {
+                if state.is_closed() {
+                    // If closed flag is set AND there are no pending messages
+                    // it means end of stream
+                    self.inner = None;
+                    Poll::Ready(None)
+                } else {
                     // If queue is open, we need to return Pending
                     // to be woken up when new messages arrive.
                     // If queue is closed but num_messages is non-zero,
@@ -1182,11 +1216,6 @@ impl<T> UnboundedReceiver<T> {
                     // so we need to park until sender unparks the task
                     // after queueing the message.
                     Poll::Pending
-                } else {
-                    // If closed flag is set AND there are no pending messages
-                    // it means end of stream
-                    self.inner = None;
-                    Poll::Ready(None)
                 }
             }
         }
@@ -1240,8 +1269,26 @@ impl<T> Drop for UnboundedReceiver<T> {
         // Drain the channel of all pending messages
         self.close();
         if self.inner.is_some() {
-            while let Poll::Ready(Some(..)) = self.next_message() {
-                // ...
+            loop {
+                match self.next_message() {
+                    Poll::Ready(Some(_)) => {}
+                    Poll::Ready(None) => break,
+                    Poll::Pending => {
+                        let state = decode_state(self.inner.as_ref().unwrap().state.load(SeqCst));
+
+                        // If the channel is closed, then there is no need to park.
+                        if state.is_closed() {
+                            break;
+                        }
+
+                        // TODO: Spinning isn't ideal, it might be worth
+                        // investigating using a condvar or some other strategy
+                        // here. That said, if this case is hit, then another thread
+                        // is about to push the value into the queue and this isn't
+                        // the only spinlock in the impl right now.
+                        thread::yield_now();
+                    }
+                }
             }
         }
     }
@@ -1288,6 +1335,12 @@ unsafe impl<T: Send> Sync for UnboundedInner<T> {}
 
 unsafe impl<T: Send> Send for BoundedInner<T> {}
 unsafe impl<T: Send> Sync for BoundedInner<T> {}
+
+impl State {
+    fn is_closed(&self) -> bool {
+        !self.is_open && self.num_messages == 0
+    }
+}
 
 /*
  *

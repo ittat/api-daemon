@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0
+
+* [Cryptjar](https://github.com/Cryptjar) removed the `A:Array` bound on the struct of `ArrayVec<A:Array>`,
+  and added the `from_array_empty` method, which is a `const fn` constructor
+  [pr 141](https://github.com/Lokathor/tinyvec/pull/141).
+
+## 1.1.1
+
+* [saethlin](https://github.com/saethlin) contributed many PRs (
+  [127](https://github.com/Lokathor/tinyvec/pull/127),
+  [128](https://github.com/Lokathor/tinyvec/pull/128),
+  [129](https://github.com/Lokathor/tinyvec/pull/129),
+  [131](https://github.com/Lokathor/tinyvec/pull/131),
+  [132](https://github.com/Lokathor/tinyvec/pull/132)
+  ) to help in several benchmarks.
+
 ## 1.1.0
 
 * [slightlyoutofphase](https://github.com/slightlyoutofphase)

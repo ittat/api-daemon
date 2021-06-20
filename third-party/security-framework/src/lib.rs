@@ -1,6 +1,7 @@
 //! Wrappers around the OSX Security Framework.
 #![warn(missing_docs)]
 #![allow(non_upper_case_globals)]
+#![allow(clippy::manual_non_exhaustive)] // MSRV
 
 #[macro_use]
 extern crate core_foundation;
@@ -61,6 +62,7 @@ trait AsInner {
     fn as_inner(&self) -> Self::Inner;
 }
 
+#[inline(always)]
 fn cvt(err: OSStatus) -> Result<()> {
     match err {
         errSecSuccess => Ok(()),

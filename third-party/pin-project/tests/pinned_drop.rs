@@ -1,7 +1,8 @@
 #![warn(rust_2018_idioms, single_use_lifetimes)]
 
-use pin_project::{pin_project, pinned_drop};
 use std::pin::Pin;
+
+use pin_project::{pin_project, pinned_drop};
 
 #[test]
 fn safe_project() {
@@ -260,4 +261,24 @@ fn inside_macro() {
     }
 
     mac!(1);
+}
+
+pub mod self_path {
+    use super::*;
+
+    #[pin_project(PinnedDrop)]
+    pub struct S<T: Unpin>(T);
+
+    fn f() {}
+
+    #[pinned_drop]
+    impl<T: Unpin> PinnedDrop for self::S<T> {
+        fn drop(mut self: Pin<&mut Self>) {
+            self::f();
+            let _: self::S<()> = self::S(());
+            let _: self::S<Pin<&mut Self>> = self::S(self.as_mut());
+            let self::S(()) = self::S(());
+            let self::S(&mut Self(_)) = self::S(&mut *self);
+        }
+    }
 }

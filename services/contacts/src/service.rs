@@ -1,12 +1,13 @@
 /// Implementation of the contacts service.
-use crate::db::{ContactDbCursor, ContactsDb};
+use crate::cursor::ContactDbCursor;
+use crate::db::ContactsDb;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
-    Shared, SharedSessionContext, SimpleObjectTracker, TrackerId,
+    Shared, SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
 use std::rc::Rc;
@@ -14,6 +15,12 @@ use std::thread;
 
 pub struct ContactsSharedData {
     pub db: ContactsDb,
+}
+
+impl StateLogger for ContactsSharedData {
+    fn log(&self) {
+        self.db.log();
+    }
 }
 
 // The struct used to implement the ContactCursor interface.
@@ -234,6 +241,8 @@ impl ContactsFactoryMethods for ContactsService {
             if let Some(info) = db_cursor.next() {
                 debug!("matches info.len: {}", info.len());
                 responder.resolve(!info.is_empty());
+            } else {
+                responder.resolve(false);
             }
         } else {
             responder.reject();

@@ -29,6 +29,8 @@ pub type Elf64_Sxword = i64;
 pub type Elf64_Word = u32;
 pub type Elf64_Xword = u64;
 
+pub type iconv_t = *mut ::c_void;
+
 cfg_if! {
     if #[cfg(target_pointer_width = "64")] {
         type Elf_Addr = Elf64_Addr;
@@ -297,6 +299,12 @@ s! {
         pub sc_groups: [::gid_t; 1],
     }
 
+    pub struct unpcbid {
+        pub unp_pid: ::pid_t,
+        pub unp_euid: ::uid_t,
+        pub unp_egid: ::gid_t,
+    }
+
     pub struct sockaddr_dl {
         pub sdl_len: ::c_uchar,
         pub sdl_family: ::c_uchar,
@@ -437,7 +445,6 @@ s_no_extra_traits! {
         pub ipi_ifindex: ::c_uint,
     }
 
-    #[repr(packed)]
     pub struct arphdr {
         pub ar_hrd: u16,
         pub ar_pro: u16,
@@ -446,7 +453,6 @@ s_no_extra_traits! {
         pub ar_op: u16,
     }
 
-    #[repr(packed)]
     pub struct in_addr {
         pub s_addr: ::in_addr_t,
     }
@@ -1044,6 +1050,12 @@ pub const SO_ACCEPTFILTER: ::c_int = 0x1000;
 pub const SO_TIMESTAMP: ::c_int = 0x2000;
 pub const SO_OVERFLOWED: ::c_int = 0x1009;
 pub const SO_NOHEADER: ::c_int = 0x100a;
+
+// http://cvsweb.netbsd.org/bsdweb.cgi/src/sys/sys/un.h?annotate
+pub const LOCAL_OCREDS: ::c_int = 0x0001; // pass credentials to receiver
+pub const LOCAL_CONNWAIT: ::c_int = 0x0002; // connects block until accepted
+pub const LOCAL_PEEREID: ::c_int = 0x0003; // get peer identification
+pub const LOCAL_CREDS: ::c_int = 0x0004; // pass credentials to receiver
 
 // https://github.com/NetBSD/src/blob/trunk/sys/net/if.h#L373
 pub const IFF_UP: ::c_int = 0x0001; // interface is up
@@ -1734,8 +1746,10 @@ pub const SF_SNAPSHOT: ::c_ulong = 0x00200000;
 pub const SF_LOG: ::c_ulong = 0x00400000;
 pub const SF_SNAPINVAL: ::c_ulong = 0x00800000;
 
-fn _ALIGN(p: usize) -> usize {
-    (p + _ALIGNBYTES) & !_ALIGNBYTES
+const_fn! {
+    {const} fn _ALIGN(p: usize) -> usize {
+        (p + _ALIGNBYTES) & !_ALIGNBYTES
+    }
 }
 
 f! {
@@ -1766,7 +1780,7 @@ f! {
         }
     }
 
-    pub fn CMSG_SPACE(length: ::c_uint) -> ::c_uint {
+    pub {const} fn CMSG_SPACE(length: ::c_uint) -> ::c_uint {
         (_ALIGN(::mem::size_of::<::cmsghdr>()) + _ALIGN(length as usize))
             as ::c_uint
     }
@@ -1923,11 +1937,7 @@ extern "C" {
         sevlen: ::socklen_t,
         flags: ::c_int,
     ) -> ::c_int;
-    pub fn mprotect(
-        addr: *mut ::c_void,
-        len: ::size_t,
-        prot: ::c_int,
-    ) -> ::c_int;
+    pub fn mprotect(addr: *mut ::c_void, len: ::size_t, prot: ::c_int) -> ::c_int;
     pub fn sysctl(
         name: *const ::c_int,
         namelen: ::c_uint,
@@ -1963,8 +1973,7 @@ extern "C" {
     pub fn mq_open(name: *const ::c_char, oflag: ::c_int, ...) -> ::mqd_t;
     pub fn mq_close(mqd: ::mqd_t) -> ::c_int;
     pub fn mq_getattr(mqd: ::mqd_t, attr: *mut ::mq_attr) -> ::c_int;
-    pub fn mq_notify(mqd: ::mqd_t, notification: *const ::sigevent)
-        -> ::c_int;
+    pub fn mq_notify(mqd: ::mqd_t, notification: *const ::sigevent) -> ::c_int;
     pub fn mq_receive(
         mqd: ::mqd_t,
         msg_ptr: *mut ::c_char,
@@ -1977,11 +1986,7 @@ extern "C" {
         msg_len: ::size_t,
         msg_prio: ::c_uint,
     ) -> ::c_int;
-    pub fn mq_setattr(
-        mqd: ::mqd_t,
-        newattr: *const ::mq_attr,
-        oldattr: *mut ::mq_attr,
-    ) -> ::c_int;
+    pub fn mq_setattr(mqd: ::mqd_t, newattr: *const ::mq_attr, oldattr: *mut ::mq_attr) -> ::c_int;
     #[link_name = "__mq_timedreceive50"]
     pub fn mq_timedreceive(
         mqd: ::mqd_t,
@@ -1999,25 +2004,14 @@ extern "C" {
         abs_timeout: *const ::timespec,
     ) -> ::c_int;
     pub fn mq_unlink(name: *const ::c_char) -> ::c_int;
-    pub fn ptrace(
-        request: ::c_int,
-        pid: ::pid_t,
-        addr: *mut ::c_void,
-        data: ::c_int,
-    ) -> ::c_int;
+    pub fn ptrace(request: ::c_int, pid: ::pid_t, addr: *mut ::c_void, data: ::c_int) -> ::c_int;
     pub fn pthread_setname_np(
         t: ::pthread_t,
         name: *const ::c_char,
         arg: *const ::c_void,
     ) -> ::c_int;
-    pub fn pthread_attr_get_np(
-        thread: ::pthread_t,
-        attr: *mut ::pthread_attr_t,
-    ) -> ::c_int;
-    pub fn pthread_getattr_np(
-        native: ::pthread_t,
-        attr: *mut ::pthread_attr_t,
-    ) -> ::c_int;
+    pub fn pthread_attr_get_np(thread: ::pthread_t, attr: *mut ::pthread_attr_t) -> ::c_int;
+    pub fn pthread_getattr_np(native: ::pthread_t, attr: *mut ::pthread_attr_t) -> ::c_int;
     pub fn pthread_attr_getguardsize(
         attr: *const ::pthread_attr_t,
         guardsize: *mut ::size_t,
@@ -2037,11 +2031,7 @@ extern "C" {
     pub fn duplocale(base: ::locale_t) -> ::locale_t;
     pub fn freelocale(loc: ::locale_t);
     pub fn localeconv_l(loc: ::locale_t) -> *mut lconv;
-    pub fn newlocale(
-        mask: ::c_int,
-        locale: *const ::c_char,
-        base: ::locale_t,
-    ) -> ::locale_t;
+    pub fn newlocale(mask: ::c_int, locale: *const ::c_char, base: ::locale_t) -> ::locale_t;
     #[link_name = "__settimeofday50"]
     pub fn settimeofday(tv: *const ::timeval, tz: *const ::c_void) -> ::c_int;
 
@@ -2081,6 +2071,16 @@ extern "C" {
         >,
         data: *mut ::c_void,
     ) -> ::c_int;
+
+    pub fn iconv_open(tocode: *const ::c_char, fromcode: *const ::c_char) -> iconv_t;
+    pub fn iconv(
+        cd: iconv_t,
+        inbuf: *mut *mut ::c_char,
+        inbytesleft: *mut ::size_t,
+        outbuf: *mut *mut ::c_char,
+        outbytesleft: *mut ::size_t,
+    ) -> ::size_t;
+    pub fn iconv_close(cd: iconv_t) -> ::c_int;
 }
 
 #[link(name = "util")]
@@ -2100,16 +2100,8 @@ extern "C" {
     ) -> ::c_int;
 
     pub fn updwtmpx(file: *const ::c_char, ut: *const utmpx) -> ::c_int;
-    pub fn getlastlogx(
-        fname: *const ::c_char,
-        uid: ::uid_t,
-        ll: *mut lastlogx,
-    ) -> *mut lastlogx;
-    pub fn updlastlogx(
-        fname: *const ::c_char,
-        uid: ::uid_t,
-        ll: *mut lastlogx,
-    ) -> ::c_int;
+    pub fn getlastlogx(fname: *const ::c_char, uid: ::uid_t, ll: *mut lastlogx) -> *mut lastlogx;
+    pub fn updlastlogx(fname: *const ::c_char, uid: ::uid_t, ll: *mut lastlogx) -> ::c_int;
     pub fn utmpxname(file: *const ::c_char) -> ::c_int;
     pub fn getutxent() -> *mut utmpx;
     pub fn getutxid(ut: *const utmpx) -> *mut utmpx;

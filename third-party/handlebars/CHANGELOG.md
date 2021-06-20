@@ -1,5 +1,13 @@
 # Change Log
 
+## [3.5.4](https://github.com/sunng87/handlebars-rust/compare/3.5.3...3.5.4) - 2021-03-27
+
+* [Fixed] Json string literal with escape char [#422]
+
+## [3.5.3](https://github.com/sunng87/handlebars-rust/compare/3.5.2...3.5.3) - 2021-02-20
+
+* [Fixed] value access issue when upper block has a base value [#419]
+
 ## [3.5.2](https://github.com/sunng87/handlebars-rust/compare/3.5.1...3.5.2) - 2020-12-29
 
 * [Fixed] allow `/` as trailing separator on Windows, backported from master [#405]

@@ -7,6 +7,19 @@ Versioning].
 
 ---
 
+## 0.2.26 [2021-03-16]
+
+### Fixed
+
+- #316, where the build script was wrongly unable to determine the correct compiler version
+- Dependencies have been bumped to the latest patch version, ensuring compatibility.
+
+## 0.2.25 [2021-01-24]
+
+### Fixed
+
+- Fix #309, which can cause panics in certain situations.
+
 ## 0.2.24 [2021-01-08]
 
 ### Fixed

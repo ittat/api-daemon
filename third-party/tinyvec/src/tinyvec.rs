@@ -3,6 +3,7 @@
 use super::*;
 
 use alloc::vec::{self, Vec};
+use core::convert::TryFrom;
 use tinyvec_macros::impl_mirrored;
 
 #[cfg(feature = "serde")]
@@ -676,18 +677,34 @@ impl<A: Array> TinyVec<A> {
   /// tv.push(4);
   /// assert_eq!(tv.as_slice(), &[1, 2, 3, 4]);
   /// ```
-  #[inline(always)]
+  #[inline]
   pub fn push(&mut self, val: A::Item) {
-    let arr = match self {
-      TinyVec::Heap(v) => return v.push(val),
-      TinyVec::Inline(a) => a,
-    };
-
-    if let Some(x) = arr.try_push(val) {
+    // The code path for moving the inline contents to the heap produces a lot
+    // of instructions, but we have a strong guarantee that this is a cold
+    // path. LLVM doesn't know this, inlines it, and this tends to cause a
+    // cascade of other bad inlining decisions because the body of push looks
+    // huge even though nearly every call executes the same few instructions.
+    //
+    // Moving the logic out of line with #[cold] causes the hot code to  be
+    // inlined together, and we take the extra cost of a function call only
+    // in rare cases.
+    #[cold]
+    fn drain_to_heap_and_push<A: Array>(
+      arr: &mut ArrayVec<A>, val: A::Item,
+    ) -> TinyVec<A> {
       /* Make the Vec twice the size to amortize the cost of draining */
       let mut v = arr.drain_to_vec_and_reserve(arr.len());
-      v.push(x);
-      *self = TinyVec::Heap(v);
+      v.push(val);
+      TinyVec::Heap(v)
+    }
+
+    match self {
+      TinyVec::Heap(v) => v.push(val),
+      TinyVec::Inline(arr) => {
+        if let Some(x) = arr.try_push(val) {
+          *self = drain_to_heap_and_push(arr, x);
+        }
+      }
     }
   }
 
@@ -1098,13 +1115,10 @@ where
   #[inline]
   #[must_use]
   fn from(slice: &[T]) -> Self {
-    if slice.len() > A::CAPACITY {
-      TinyVec::Heap(slice.into())
-    } else {
-      let mut arr = ArrayVec::new();
-      arr.extend_from_slice(slice);
-
+    if let Ok(arr) = ArrayVec::try_from(slice) {
       TinyVec::Inline(arr)
+    } else {
+      TinyVec::Heap(slice.into())
     }
   }
 }
@@ -1295,11 +1309,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Binary::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1312,11 +1332,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Debug::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1329,11 +1355,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Display::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1346,11 +1378,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       LowerExp::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1363,11 +1401,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       LowerHex::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1380,11 +1424,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Octal::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1397,11 +1447,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       Pointer::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1414,11 +1470,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       UpperExp::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }
@@ -1431,11 +1493,17 @@ where
   #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
     write!(f, "[")?;
+    if f.alternate() {
+      write!(f, "\n    ")?;
+    }
     for (i, elem) in self.iter().enumerate() {
       if i > 0 {
-        write!(f, ", ")?;
+        write!(f, ",{}", if f.alternate() { "\n    " } else { " " })?;
       }
       UpperHex::fmt(elem, f)?;
+    }
+    if f.alternate() {
+      write!(f, ",\n")?;
     }
     write!(f, "]")
   }

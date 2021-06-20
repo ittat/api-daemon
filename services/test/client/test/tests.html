@@ -48,6 +48,94 @@
 
         timeout_handler.stop();
 
+        // Test if the event handler is working as expected.
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger the callback given by addEventListener",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+        }
+
+        // Multiple identical event listeners.
+        // https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener#multiple_identical_event_listeners
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+
+          // Try to call `addEventListener` multiple times with the same handler.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger only once when registering with \
+            the same listener multiple times",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+
+          await tester.assert_eq(
+            "it should only call removeEventListener one time to stop the \
+            listener even if we registered the same listener multiple times",
+            () => Promise.resolve(counter),
+            1
+          );
+        }
+
+        // Test if the event handler is working as expected after
+        // SessionObject re-enabled the event.
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+
+          // Add and remove the event listener to disable/re-enable the event.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          // Add another event listener for verification.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger the callback if SessionObject ever disabled/re-enabled the event",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+        }
+
         let echo_obj = { foo: "bar", json: true, magic: 42 };
         await tester.assert_eq(
           "echo_json",
@@ -323,6 +411,56 @@
             (service) => service.echoDate(dates[i]),
             dates[i].getTime(),
             (result) => result.getTime()
+          );
+        }
+
+
+        const some1 = {
+          key: "some1",
+          value: "value1",
+        };
+        const some2 = {
+          key: "some2",
+          value: "value2",
+          next: [some1]
+        };
+        const some3 = {
+          key: "some3",
+          value: "value3",
+          next: [some1, some2]
+        };
+        const somes = [ some1, some2, some3 ];
+
+        for (let i = 0; i < somes.length; i++) {
+          await tester.assert_eq(
+            `Test echo something some${i}`,
+            (service) => service.echoSomethings(somes[i]),
+            somes[i]
+          );
+        }
+
+        const more1 = {
+          key: "more1",
+          value: "value1",
+          next: []
+        };
+        const more2 = {
+          key: "more2",
+          value: "value2",
+          next: [more1]
+        };
+        const more3 = {
+          key: "more3",
+          value: "value3",
+          next: [more1, more2]
+        };
+        const mores = [ more1, more2, more3 ];
+
+        for (let i = 0; i < somes.length; i++) {
+          await tester.assert_eq(
+            `Test echo morething more${i}`,
+            (service) => service.echoMorethings(mores[i]),
+            mores[i]
           );
         }
 

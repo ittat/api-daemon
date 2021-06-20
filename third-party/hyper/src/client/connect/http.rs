@@ -272,53 +272,59 @@ where
     }
 }
 
+fn get_host_port<'u>(config: &Config, dst: &'u Uri) -> Result<(&'u str, u16), ConnectError> {
+    trace!(
+        "Http::connect; scheme={:?}, host={:?}, port={:?}",
+        dst.scheme(),
+        dst.host(),
+        dst.port(),
+    );
+
+    if config.enforce_http {
+        if dst.scheme() != Some(&Scheme::HTTP) {
+            return Err(ConnectError {
+                msg: INVALID_NOT_HTTP.into(),
+                cause: None,
+            });
+        }
+    } else if dst.scheme().is_none() {
+        return Err(ConnectError {
+            msg: INVALID_MISSING_SCHEME.into(),
+            cause: None,
+        });
+    }
+
+    let host = match dst.host() {
+        Some(s) => s,
+        None => {
+            return Err(ConnectError {
+                msg: INVALID_MISSING_HOST.into(),
+                cause: None,
+            })
+        }
+    };
+    let port = match dst.port() {
+        Some(port) => port.as_u16(),
+        None => {
+            if dst.scheme() == Some(&Scheme::HTTPS) {
+                443
+            } else {
+                80
+            }
+        }
+    };
+
+    Ok((host, port))
+}
+
 impl<R> HttpConnector<R>
 where
     R: Resolve,
 {
     async fn call_async(&mut self, dst: Uri) -> Result<TcpStream, ConnectError> {
-        trace!(
-            "Http::connect; scheme={:?}, host={:?}, port={:?}",
-            dst.scheme(),
-            dst.host(),
-            dst.port(),
-        );
-
-        if self.config.enforce_http {
-            if dst.scheme() != Some(&Scheme::HTTP) {
-                return Err(ConnectError {
-                    msg: INVALID_NOT_HTTP.into(),
-                    cause: None,
-                });
-            }
-        } else if dst.scheme().is_none() {
-            return Err(ConnectError {
-                msg: INVALID_MISSING_SCHEME.into(),
-                cause: None,
-            });
-        }
-
-        let host = match dst.host() {
-            Some(s) => s,
-            None => {
-                return Err(ConnectError {
-                    msg: INVALID_MISSING_HOST.into(),
-                    cause: None,
-                })
-            }
-        };
-        let port = match dst.port() {
-            Some(port) => port.as_u16(),
-            None => {
-                if dst.scheme() == Some(&Scheme::HTTPS) {
-                    443
-                } else {
-                    80
-                }
-            }
-        };
-
         let config = &self.config;
+
+        let (host, port) = get_host_port(config, &dst)?;
 
         // If the host is already an IP addr (v4 or v6),
         // skip resolving the dns and start connecting right away.
@@ -328,10 +334,12 @@ where
             let addrs = resolve(&mut self.resolver, dns::Name::new(host.into()))
                 .await
                 .map_err(ConnectError::dns)?;
-            let addrs = addrs.map(|mut addr| {
-                addr.set_port(port);
-                addr
-            }).collect();
+            let addrs = addrs
+                .map(|mut addr| {
+                    addr.set_port(port);
+                    addr
+                })
+                .collect();
             dns::SocketAddrs::new(addrs)
         };
 
@@ -576,14 +584,11 @@ fn connect(
     // TODO(eliza): if Tokio's `TcpSocket` gains support for setting the
     // keepalive timeout, it would be nice to use that instead of socket2,
     // and avoid the unsafe `into_raw_fd`/`from_raw_fd` dance...
-    use socket2::{Domain, Protocol, Socket, Type};
+    use socket2::{Domain, Protocol, Socket, TcpKeepalive, Type};
     use std::convert::TryInto;
 
-    let domain = match *addr {
-        SocketAddr::V4(_) => Domain::ipv4(),
-        SocketAddr::V6(_) => Domain::ipv6(),
-    };
-    let socket = Socket::new(domain, Type::stream(), Some(Protocol::tcp()))
+    let domain = Domain::for_address(*addr);
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
         .map_err(ConnectError::m("tcp open error"))?;
 
     // When constructing a Tokio `TcpSocket` from a raw fd/socket, the user is
@@ -593,7 +598,8 @@ fn connect(
         .map_err(ConnectError::m("tcp set_nonblocking error"))?;
 
     if let Some(dur) = config.keep_alive_timeout {
-        if let Err(e) = socket.set_keepalive(Some(dur)) {
+        let conf = TcpKeepalive::new().with_time(dur);
+        if let Err(e) = socket.set_tcp_keepalive(&conf) {
             warn!("tcp set_keepalive error: {}", e);
         }
     }

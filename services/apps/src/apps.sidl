@@ -35,6 +35,7 @@ enum AppsServiceError {
   DownloadPackageFailed   // Can't download the app package
   DuplicatedAction        // Requested action is duplicated
   InvalidAppName          // App name is not allowed to use
+  InvalidIcon             // Error in the icon object
   InvalidStartUrl         // Error in the manifest file
   InvalidState            // The service is not ready
   InvalidManifest         // Error in the manifest file
@@ -47,6 +48,7 @@ enum AppsServiceError {
   RegistrationError       // Can't register the app webapps json
   ReinstallForbidden      // Do not allow reinstall an existing app
   UpdateError             // Error durint update
+  UninstallForbidden      // Do not allow to uninstall the app
   UnknownError            // Other undefined error
 }
 
@@ -86,6 +88,9 @@ dictionary AppsObject {
   updateState: AppsUpdateState
   updateURL: str
   allowedAutoDownload: bool
+  preloaded: bool
+  progress: int  // From 0 to 100
+  origin: str    // The app runtime origin
 }
 
 dictionary DownloadFailedReason {
@@ -95,6 +100,12 @@ dictionary DownloadFailedReason {
 
 dictionary AppsOptions {
   autoInstall: bool?
+}
+
+dictionary UpdatePolicy {
+    enabled: bool              // To enable/disable auto update check.
+    conn_type: ConnectionType  // The type of network are allow to use
+    delay: int                 // Update check for certain time after a success check in seconds
 }
 
 #[rust:not-tracked]
@@ -140,11 +151,13 @@ interface AppsEngine {
   // Return: the app object or an error string.
   fn cancel_download(update_url: str) -> AppsObject, AppsServiceError
 
-  // In: enabled to enable/disable auto update check.
-  // allowed_type, the types of network are allow to use
-  // delay, update check for certain time after a success check in seconds
+  // In: config for update policy
   // Return: successfully set or not.
-  fn set_update_policy(enabled: bool, allowed_type: ConnectionType, delay: int) -> bool
+  fn set_update_policy(config: UpdatePolicy) -> bool
+
+  // Return auto update policy
+  fn get_update_policy() -> UpdatePolicy
+
 
   // In: Token provider, which is used later by app service to get token
   fn set_token_provider(provider: TokenProvider)

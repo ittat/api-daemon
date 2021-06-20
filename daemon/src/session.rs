@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::session_counter::SessionKind;
 use crate::shared_state::{
     enabled_services, format_request_helper, on_create_service_helper, on_release_object_helper,
     process_base_message_helper, SharedStateMap, TrackableServices,
@@ -41,6 +42,7 @@ pub struct Session {
     pub(crate) shared_state: SharedStateMap,
     pub(crate) session_helper: SessionSupport,
     bytes_received: usize,
+    kind: SessionKind,
 }
 
 impl Drop for Session {
@@ -51,6 +53,7 @@ impl Drop for Session {
             self.session_helper.bytes_sent()
         );
         self.close();
+        self.kind.end();
     }
 }
 
@@ -67,7 +70,9 @@ impl Session {
         shared_state: SharedStateMap,
         state: SessionState,
         origin_attributes: Option<OriginAttributes>,
+        kind: SessionKind,
     ) -> Self {
+        kind.start();
         remote_services_manager
             .lock()
             .add_upstream_session(session_id, sender.clone());
@@ -92,6 +97,7 @@ impl Session {
                 event_map,
             ),
             bytes_received: 0,
+            kind,
         }
     }
 
@@ -116,6 +122,7 @@ impl Session {
             shared_state,
             SessionState::Handshake,
             None,
+            SessionKind::Ws,
         )
     }
 
@@ -140,6 +147,7 @@ impl Session {
             shared_state,
             SessionState::Request,
             Some(OriginAttributes::new("uds", HashSet::new())),
+            SessionKind::Uds,
         )
     }
 
@@ -344,19 +352,6 @@ impl Session {
             Ok(handshake) => {
                 info!("Got client handshake");
 
-                // In fake-tokens mode, add the presented token to the token manager.
-                #[cfg(feature = "fake-tokens")]
-                {
-                    info!(
-                        "Running in fake-tokens mode... handshake token is '{}'",
-                        handshake.token
-                    );
-                    self.token_manager.lock().register(
-                        &handshake.token,
-                        OriginAttributes::new("fake-identity", HashSet::new()),
-                    );
-                }
-
                 // Check that we are presented with a valid token, and store the identity if
                 // this is the case.
                 if let Some(attr) = self
@@ -442,15 +437,20 @@ impl Session {
                 self.on_request(message);
             }
         }
-        let elapsed = timer.elapsed().unwrap();
-        let millis = (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
-        if millis > self.message_max_time {
-            let what = if is_handshake {
-                "Handshake".into()
-            } else {
-                self.format_request(message)
-            };
-            warn!("Processing '{}' took too long: {}ms", what, millis);
+
+        match timer.elapsed() {
+            Ok(elapsed) => {
+                let millis = (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
+                if millis > self.message_max_time {
+                    let what = if is_handshake {
+                        "Handshake".into()
+                    } else {
+                        self.format_request(message)
+                    };
+                    warn!("Processing '{}' took too long: {}ms", what, millis);
+                }
+            }
+            Err(err) => error!("Faled to get message processing time: {:?}", err.duration()),
         }
     }
 
