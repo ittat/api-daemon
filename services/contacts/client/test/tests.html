@@ -34,12 +34,186 @@
           0
         );
 
+        let same_family_name_contacts = [
+          {
+            familyName: "zhang",
+            givenName: "san",
+            name: "zhangsan",
+          },
+          {
+            familyName: "zhang",
+            givenName: "wu",
+            name: "zhangwu",
+          },
+          {
+            familyName: "zhang",
+            givenName: "liu",
+            name: "zhangliu",
+          },
+        ];
+
+        await tester.assert_eq(
+          "add same_family_name_contacts",
+          (service) => service.add(same_family_name_contacts),
+          {}
+        );
+
+        let get_all_sort_by_family_name_desc_cursor =
+          await tester.service.getAll(
+            {
+              sortBy: lib_contacts.SortOption.FAMILY_NAME,
+              sortOrder: lib_contacts.Order.DESCENDING,
+            },
+            20,
+            false
+          );
+
+        let get_all_sort_by_family_name_desc_result =
+          await get_all_sort_by_family_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify getall resut sorting by family name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              get_all_sort_by_family_name_desc_result.forEach(function (
+                contact
+              ) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["zhangwu", "zhangsan", "zhangliu"]
+        );
+
+        get_all_sort_by_family_name_desc_cursor.release();
+
+        let find_sort_by_family_name_asc_cursor = await tester.service.find({
+          sortBy: lib_contacts.SortOption.FAMILY_NAME,
+          sortOrder: lib_contacts.Order.ASCENDING,
+          filterValue: "zhang",
+          filterOption: lib_contacts.FilterOption.EQUALS,
+          filterBy: [lib_contacts.FilterByOption.FAMILY_NAME],
+          onlyMainData: false,
+        });
+
+        let find_sort_by_family_name_asc_result =
+          await find_sort_by_family_name_asc_cursor.next();
+
+        await tester.assert_eq(
+          "verify find result sorting by family name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              find_sort_by_family_name_asc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["zhangliu", "zhangsan", "zhangwu"]
+        );
+
+        find_sort_by_family_name_asc_cursor.release();
+
+        await tester.assert_eq(
+          "clear contacts db",
+          (service) => service.clearContacts(),
+          {}
+        );
+
+        let same_given_name_contacts = [
+          {
+            familyName: "ma",
+            givenName: "jack",
+            name: "jack ma",
+          },
+          {
+            familyName: "huang",
+            givenName: "jack",
+            name: "jack huang",
+          },
+          {
+            familyName: "tang",
+            givenName: "jack",
+            name: "jack tang",
+          },
+        ];
+
+        await tester.assert_eq(
+          "add same_given_name_contacts",
+          (service) => service.add(same_given_name_contacts),
+          {}
+        );
+
+        let get_all_sort_by_given_name_asc_cursor = await tester.service.getAll(
+          {
+            sortBy: lib_contacts.SortOption.GIVEN_NAME,
+            sortOrder: lib_contacts.Order.ASCENDING,
+          },
+          20,
+          false
+        );
+
+        let get_all_sort_by_given_name_asc_result =
+          await get_all_sort_by_given_name_asc_cursor.next();
+
+        await tester.assert_eq(
+          "verify getall result sorting by given name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              get_all_sort_by_given_name_asc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["jack huang", "jack ma", "jack tang"]
+        );
+
+        get_all_sort_by_given_name_asc_cursor.release();
+
+        let find_sort_by_given_name_desc_cursor = await tester.service.find({
+          sortBy: lib_contacts.SortOption.GIVEN_NAME,
+          sortOrder: lib_contacts.Order.DESCENDING,
+          filterValue: "jack",
+          filterOption: lib_contacts.FilterOption.EQUALS,
+          filterBy: [lib_contacts.FilterByOption.GIVEN_NAME],
+          onlyMainData: false,
+        });
+
+        let find_sort_by_given_name_desc_result =
+          await find_sort_by_given_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify find result sorting by given name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              find_sort_by_given_name_desc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["jack tang", "jack ma", "jack huang"]
+        );
+
+        find_sort_by_given_name_desc_cursor.release();
+
+        await tester.assert_eq(
+          "clear contacts db",
+          (service) => service.clearContacts(),
+          {}
+        );
+
         let contact_none_1 = {
           published: new Date(),
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "ZX",
           tel: [{ value: "789456" }],
         };
@@ -63,10 +237,10 @@
         );
 
         await tester.assert_rej_eq(
-            "verify search 1 result is empty",
-            () => search_contain_1_cursor.next(),
-            {}
-          );
+          "verify search 1 result is empty",
+          () => search_contain_1_cursor.next(),
+          {}
+        );
 
         search_contain_1_cursor.release();
 
@@ -136,7 +310,6 @@
 
         // Add contact.
         let contact_1 = {
-          id: "",
           published: new Date(),
           updated: new Date(),
           bday: new Date(),
@@ -145,7 +318,6 @@
           genderIdentity: "456",
           ringtone: "789",
           photoType: "jpeg",
-          photoBlob: [],
           addresses: [
             { streetAddress: "TIAN WANG GAI DIHU", countryName: "China" },
           ],
@@ -188,7 +360,6 @@
         };
 
         let contact_2 = {
-          id: "",
           published: new Date(),
           updated: new Date(),
           bday: new Date(),
@@ -197,7 +368,6 @@
           genderIdentity: "gender",
           ringtone: "000",
           photoType: "jpeg",
-          photoBlob: [],
           addresses: [{ streetAddress: "", countryName: "Uk" }],
           email: [{ atype: "office", value: "hp@mail.com", pref: false }],
           url: [{ atype: "home", value: "www.os.com", pref: true }],
@@ -452,7 +622,6 @@
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "contact_with_group",
           groups: [group_colleague.id],
         };
@@ -521,13 +690,13 @@
 
         // Db side will remove nothing when provide a none exist contact id.
         await tester.assert_rej_eq(
-          "verify remove a none exist contact ",
+          "verify remove a non-existent contact",
           (service) => service.remove(["99999999", "6666666666"]),
           {}
         );
 
         await tester.assert_eq(
-          "verify contact count is 2 after remvoe a none exist contact ",
+          "verify contact count is 2 after removing a non-existent contact",
           (service) => service.getCount(),
           2
         );
@@ -556,7 +725,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Alpha",
             givenName: "bob",
             familyName: "Catrl",
@@ -571,7 +739,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Beta",
             familyName: "Cmkj",
             givenName: "Catrl",
@@ -586,7 +753,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Cargo",
             familyName: "Hualin",
             givenName: "bob",
@@ -603,7 +769,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "ZhangSan",
             familyName: "Ji",
             givenName: "Ke",
@@ -767,7 +932,8 @@
           20
         );
 
-        let match_international_result = await match_with_international_cursor.next();
+        let match_international_result =
+          await match_with_international_cursor.next();
 
         console.log(match_international_result);
 
@@ -938,7 +1104,8 @@
           "Willie A. Christopher",
           "Willie J. Mitchell",
         ];
-        let find_startwith_name_result = await find_stratwith_name_cursor.next();
+        let find_startwith_name_result =
+          await find_stratwith_name_cursor.next();
         for (let i = 0; i < expected_startwith_wil.length; i++) {
           await tester.assert_eq(
             `find start with wil asc item #${i + 1}/5`,
@@ -992,7 +1159,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Alex",
             tel: [
               { value: "181999999" },
@@ -1008,7 +1174,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Bob",
             tel: [
               { value: "123456788" },
@@ -1024,7 +1189,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "zhangsan",
             tel: [
               { value: "453323" },
@@ -1047,7 +1211,6 @@
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "Harry",
           // The number 92518107320 will also be used to verify tel equals when find.
           tel: [
@@ -1146,7 +1309,8 @@
           20
         );
 
-        let find_equal_92518107320_result = await find_equal_92518107320_cursor.next();
+        let find_equal_92518107320_result =
+          await find_equal_92518107320_cursor.next();
 
         console.log(find_equal_92518107320_result);
 
@@ -1173,7 +1337,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Lili",
             tel: [
               { value: "12348885555" },
@@ -1189,7 +1352,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tom",
             tel: [
               { value: "123456788" },
@@ -1205,7 +1367,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Rich",
             tel: [
               { value: "453323" },
@@ -1263,7 +1424,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonya",
             email: [
               { value: "Tonya@163.com" },
@@ -1279,7 +1439,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonyb",
             email: [
               { value: "data@163.com" },
@@ -1295,7 +1454,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonyc",
             email: [
               { value: "test@163.com" },
@@ -1311,7 +1469,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "abcTonyd",
             email: [
               { value: "test1@163.com" },

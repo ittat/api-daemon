@@ -100,17 +100,26 @@ impl AppsItem {
         }
     }
 
-    // Return the orign that will be used by app in web runtime.
+    // Return the URL that will be used by app in web runtime.
     //   In: none
     //   Return:
     //     PWA app: update URL
     //     Package app: manifest URL
-    pub fn runtime_origin(&self) -> String {
-        let url = if self.is_pwa() {
+    pub fn runtime_url(&self) -> String {
+        if self.is_pwa() {
             self.get_update_url()
         } else {
             self.get_manifest_url()
-        };
+        }
+    }
+
+    // Return the orign that will be used by app in web runtime.
+    //   In: none
+    //   Return:
+    //     PWA app: the origin of update URL
+    //     Package app: the origin manifest URL
+    pub fn runtime_origin(&self) -> String {
+        let url = self.runtime_url();
         if let Ok(url) = Url::parse(&url) {
             url.origin().unicode_serialization()
         } else {
@@ -212,14 +221,6 @@ impl AppsItem {
 
     pub fn set_manifest_hash(&mut self, hash: &str) {
         self.manifest_hash = hash.to_owned();
-    }
-
-    pub fn set_manifest_etag_str(&mut self, etag: &str) {
-        self.manifest_etag = if etag.is_empty() {
-            None
-        } else {
-            Some(etag.into())
-        };
     }
 
     pub fn set_manifest_etag(&mut self, etag: Option<String>) {

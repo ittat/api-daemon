@@ -154,24 +154,49 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         install_time INTEGER,
                                         update_time INTEGER,
                                         manifest_hash TEXT,
-                                        package_hash TEXT,
-                                        manifest_etag TEXT)"#];
+                                        package_hash TEXT)"#];
+
+static UPGRADE_1_2_SQL: [&str; 1] = [r#"ALTER TABLE apps
+                                        ADD COLUMN manifest_etag TEXT"#];
 
 impl DatabaseUpgrader for AppsSchemaManager {
     fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
-        // We only support version 1 currently.
-        if !(from == 0 && to == 1) {
+        // Support version 2 only.
+        if to != 2 {
             return false;
         }
 
-        for cmd in &UPGRADE_0_1_SQL {
-            if let Err(err) = connection.execute(cmd, NO_PARAMS) {
-                error!("Upgrade step failure: {}", err);
-                return false;
+        let mut current = from;
+
+        macro_rules! execute_commands {
+            ($from:expr, $cmds:expr) => {
+                if current == $from && current < to {
+                    for cmd in $cmds {
+                        if let Err(err) = connection.execute(cmd, NO_PARAMS) {
+                            error!("Upgrade step failure: {}", err);
+                            return false;
+                        }
+                    }
+                    current += 1;
+                }
+            };
+        }
+
+        // Upgrade from version 0.
+        execute_commands!(0, &UPGRADE_0_1_SQL);
+
+        // Upgrade from version 1.
+        // To be compatible with version 1 that has manifest_etag.
+        if let Ok(stmt) = connection.prepare("SELECT * FROM apps") {
+            if stmt.column_index("manifest_etag").is_err() {
+                execute_commands!(1, &UPGRADE_1_2_SQL);
+            } else {
+                current += 1;
             }
         }
 
-        true
+        // At the end, the current version should match the expected one.
+        current == to
     }
 }
 
@@ -188,7 +213,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let update_time: i64 = row.get("update_time")?;
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
-    let manifest_etag: String = row.get("manifest_etag")?;
+    let manifest_etag: Option<String> = row.get("manifest_etag").ok();
 
     let mut item = AppsItem::new(&name);
     item.set_manifest_url(&manifest_url);
@@ -204,13 +229,14 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_update_time(update_time as _);
     item.set_manifest_hash(&manifest_hash);
     item.set_package_hash(&package_hash);
-    item.set_manifest_etag_str(&manifest_etag);
+    item.set_manifest_etag(manifest_etag);
     Ok(item)
 }
 
 impl RegistryDb {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 1)?;
+        // Open db with version 2.
+        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 2)?;
 
         if let Err(err) = db.enable_wal() {
             error!("Failed to enable WAL mode on settings db: {}", err);
